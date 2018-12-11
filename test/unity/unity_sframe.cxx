@@ -478,7 +478,7 @@ struct unity_sframe_test {
 
     std::cout << "done appending two sframes " << std::endl;
 
-    TS_ASSERT_EQUALS(sf3->size(), sf1->size() + sf2->size())
+    TS_ASSERT_EQUALS(sf3->size(), sf1->size() + sf2->size());
     for (size_t i = 0; i < num_items; i++) {
       TS_ASSERT_EQUALS(sf3_values[i], test_data1[i]);
       TS_ASSERT_EQUALS(sf3_values[i + num_items], test_data2[i]);
@@ -689,8 +689,10 @@ struct unity_sframe_test {
     auto sf = std::make_shared<unity_sframe>();
     sf->construct_from_dataframe(testdf);
 
+    const std::string temp_dir = get_temp_name();
+
     dir_archive write_arc;
-    write_arc.open_directory_for_write("cache://testdir");
+    write_arc.open_directory_for_write(temp_dir);
     oarchive oarc(write_arc);
     oarc << *sf;
     write_arc.close();
@@ -698,7 +700,7 @@ struct unity_sframe_test {
 
     auto sf2 = std::make_shared<unity_sframe>();
     dir_archive read_arc;
-    read_arc.open_directory_for_read("cache://testdir");
+    read_arc.open_directory_for_read(temp_dir);
     iarchive iarc(read_arc);
     iarc >> *sf2;
     read_arc.close();

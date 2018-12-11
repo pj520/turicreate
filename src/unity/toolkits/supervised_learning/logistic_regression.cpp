@@ -16,10 +16,13 @@
 #include <toolkits/supervised_learning/logistic_regression_opt_interface.hpp>
 #include <toolkits/supervised_learning/supervised_learning_utils-inl.hpp>
 
+// Core ML
+#include <unity/toolkits/coreml_export/linear_models_exporter.hpp>
+
 // Solvers
 #include <optimization/utils.hpp>
 #include <optimization/newton_method-inl.hpp>
-#include <optimization/lbfgs-inl.hpp>
+#include <optimization/lbfgs.hpp>
 #include <optimization/gradient_descent-inl.hpp>
 #include <optimization/accelerated_gradient-inl.hpp>
 
@@ -30,13 +33,6 @@
 #include <numerics/armadillo.hpp>
 #include <cmath>
 #include <serialization/serialization_includes.hpp>
-
-// Distributed
-#ifdef HAS_DISTRIBUTED
-#include <distributed/distributed_context.hpp>
-#include <rpc/dc_global.hpp>
-#include <rpc/dc.hpp>
-#endif
 
 #define LOGISTIC_REGRESSION_NEWTON_VARIABLES_HARD_LIMIT 10000
 #define LOGISTIC_REGRESSION_NEWTON_VARIABLES_SOFT_LIMIT 500
@@ -57,14 +53,6 @@ logistic_regression::~logistic_regression(){
   lr_interface.reset();
 }
 
-
-
-/**
- * Returns the name of the model.
- */
-std::string logistic_regression::name(){
-  return "classifier_logistic_regression";
-}
 
 /**
  * Init function common to all regression inits.
@@ -161,6 +149,12 @@ void logistic_regression::init_options(const std::map<std::string,
       false);
 
   options.create_boolean_option(
+      "simple_mode",
+      "Show progress printing with very simple options.",
+      false,
+      false);
+
+  options.create_boolean_option(
       "feature_rescaling",
       "Rescale features to have unit L2-Norm",
       true,
@@ -184,6 +178,8 @@ void logistic_regression::init_options(const std::map<std::string,
  */
 void logistic_regression::train() {
 
+  m_simple_mode = options.value("simple_mode");
+
   size_t variables_per_class = this->num_coefficients/ (this->num_classes - 1);
   if(get_option_value("feature_rescaling")){
     lr_interface->init_feature_rescaling();
@@ -206,10 +202,16 @@ void logistic_regression::train() {
   // ---------------------------------------------------------------------------
   DenseVector init_point(this->num_coefficients);
   init_point.zeros();
-  display_classifier_training_summary("Logistic regression");
-  logprogress_stream << "Number of coefficients    : " << this->num_coefficients
-                                                       << std::endl;
+  if(!m_simple_mode) {
+    display_classifier_training_summary("Logistic regression", m_simple_mode);
+    if(!m_simple_mode) {
+      logprogress_stream << "Number of coefficients      : "
+                         << this->num_coefficients << std::endl;
+    }
 
+  } else { 
+    logprogress_stream << "Beginning model training on processed features. " << std::endl;  
+  }
 
   // Deal with regularizers
   // ---------------------------------------------------------------------------
@@ -295,7 +297,7 @@ void logistic_regression::train() {
     stats = turi::optimization::newton_method(*lr_interface, init_point,
         solver_options, smooth_reg);
   } else if (solver == "lbfgs") {
-    stats = turi::optimization::lbfgs(*lr_interface, init_point,
+    stats = turi::optimization::lbfgs_compat(lr_interface, init_point,
         solver_options, smooth_reg);
   } else if (solver == "fista") {
     stats = turi::optimization::accelerated_gradient(*lr_interface,
@@ -307,6 +309,11 @@ void logistic_regression::train() {
     log_and_throw(msg.str());
   }
 
+  // Save final accuracies
+  if(lr_interface->num_validation_examples() > 0) {
+    state["validation_accuracy"] = lr_interface->get_validation_accuracy();
+  }
+  state["training_accuracy"] = lr_interface->get_training_accuracy();
 
   // Store the coefficients in the model
   // ---------------------------------------------------------------------------
@@ -342,6 +349,15 @@ void logistic_regression::train() {
   std::shared_ptr<unity_sframe> unity_progress = std::make_shared<unity_sframe>();
   unity_progress->construct_from_sframe(stats.progress_table);
   state["progress"] = to_variant(unity_progress);
+
+  // Compute validation-set stats.
+  if (lr_interface->num_validation_examples() > 0) {
+    // Recycle lvalues from stats to use as out parameters here, now that we're
+    // otherwise done reading from stats.
+    lr_interface->compute_validation_first_order_statistics(
+        stats.solution, stats.gradient, stats.func_value);
+    state["validation_loss"] =  stats.func_value;
+  }
 
   reg.reset();
   smooth_reg.reset();
@@ -458,7 +474,9 @@ flexible_type logistic_regression::predict_single_example(
         log_and_throw("Output type not supported");
     }
   }
-  DASSERT_TRUE(false);
+
+  log_and_throw(std::string("Configuration not supported"));
+  ASSERT_UNREACHABLE();
 }
 
 /**
@@ -575,11 +593,11 @@ flexible_type logistic_regression::predict_single_example(
  */
 gl_sframe logistic_regression::fast_predict_topk(
           const std::vector<flexible_type>& rows,
-          const std::string& output_type,
           const std::string& missing_value_action,
+          const std::string& output_type,
           const size_t topk){
 
-  DASSERT_TRUE(name().find("classifier") != std::string::npos);
+  DASSERT_TRUE(is_classifier());
   DASSERT_TRUE(state.count("num_coefficients") > 0);
 
   // Get a copy of the variables in the state.
@@ -752,7 +770,17 @@ size_t logistic_regression::get_version() const{
   return LOGISTIC_REGRESSION_MODEL_VERSION;
 }
 
+std::shared_ptr<coreml::MLModelWrapper> logistic_regression::export_to_coreml() {
 
+  // Add metadata
+  std::map<std::string, flexible_type> context_metadata = {
+    {"class", name()},
+    {"version", std::to_string(get_version())},
+    {"short_description", "Logisitic regression model."}};
+
+  return export_logistic_model_as_model_asset(ml_mdata, coefs,
+                                              context_metadata);
+}
 
 } // supervised
 } // turicreate

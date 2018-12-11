@@ -394,14 +394,6 @@ sframe nearest_neighbors_model::similarity_graph(const size_t k,
  */
 nearest_neighbors_model::nearest_neighbors_model() {}
 
-/**
-* Make a copy of the model object.
-*/
-ml_model_base* nearest_neighbors_model::ml_model_base_clone() {
-  nearest_neighbors_model* nnm = nearest_neighbors_clone();
-  return nnm;
-}
-
 
 /**
  * Get training stats.
@@ -662,8 +654,8 @@ void nearest_neighbors_model::initialize_model_data(const sframe& X,
 
   // Set metadata in model state
   num_examples = mld_ref.size();
-  std::vector<std::string> unpacked_feature_names=
-                           supervised::get_feature_names_from_metadata(metadata);
+  std::vector<std::string> unpacked_feature_names = metadata->feature_names();
+
   size_t num_unpacked_features = metadata->num_dimensions() +
                                  metadata->num_untranslated_columns();
 
@@ -931,6 +923,22 @@ double neighbor_candidates::get_max_dist() const {
 }
 
 
+flexible_type nearest_neighbors_model::get_reference_data() const {
+    DASSERT_EQ(num_examples, mld_ref.size());
+
+    DenseVector ref_data(metadata->num_dimensions());
+    flex_list ret(num_examples);
+    for (auto it = mld_ref.get_iterator(0, 1); !it.done(); ++it) {
+      it.fill_row_expr(ref_data);
+      ret[it.row_index()] = arma::conv_to<std::vector<double>>::from(ref_data);
+    }
+
+    return ret;
+}
+
+flexible_type _nn_get_reference_data(std::shared_ptr<nearest_neighbors_model> model) {
+  return model->get_reference_data();
+}
 
 }  // namespace nearest_neighbors
 }  // namespace turi

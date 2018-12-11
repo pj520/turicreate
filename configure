@@ -1,12 +1,14 @@
 #!/bin/bash
+
+# Exit immediately on failure of a subcommand
+set -e
+
 ##=============================================================================
 ## Main configuration processing
 RELEASE_DIR=release
 DEBUG_DIR=debug
 TURI_HOME=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )
 DEPS_PREFIX=$PWD/deps/local
-
-set -e
 
 function print_help {
   echo "Configures the build with the specified toolchain. "
@@ -26,14 +28,24 @@ function print_help {
   echo "  --with-ccache (default)           Use ccache, if available."
   echo "  --no-ccache "
   echo  
+  echo "  --with-capi (default)             Build C API."
+  echo "  --with-capi-framework             Build C API as macOS framework (macOS only)"
+  echo "  --no-capi                         Skip building the C API." 
+
   echo "  --with-python (default)           Build python components."
   echo "  --no-python"
   echo 
   echo "  --with-visualization (default)    Build Turi Create visualization client."
   echo "  --no-visualization"
   echo
-  echo "  --python3                         Use Python 3.4, default is Python 2.7."
-  echo "  --python3.5                       Use Python 3.5, default is Python 2.7."
+  echo "  --release-opt-for-size            Optimize for size."
+  echo "  --debug-opt-for-size              Debug optimize for size."
+  echo "  --target-ios                      Build for iOS (macOS only)"
+  echo
+  echo "  --with-remotefs (default)         Include capabilities for remote file access."
+  echo "  --no-remotefs                     Disable remote file access."
+  echo
+  echo "  --virtualenv VIRTUALENV_EXE       Path to virtualenv executable (otherwise looks in \$PATH)."
   echo 
   echo "  --yes                             Defaults to yes on a prompt"
   echo
@@ -44,7 +56,6 @@ function print_help {
   echo "Cleanup all build directories"
   echo "Example: ./configure --cleanup"
   echo
-  echo "All remaining options will be forwarded to cmake."
   exit 1
 } # end of print help
 
@@ -81,10 +92,11 @@ function run_cleanup_prompt {
 function install_python_toolchain { 
   
   echo "Installing python toolchain."
-  echo "python version = $PYTHON_VERSION."
+  # TODO - validate that $VIRTUALENV is set, and/or set it if not
+  echo "Using virtualenv at $VIRTUALENV."
 
   pushd ${TURI_HOME}
-  PYTHON_VERSION=${PYTHON_VERSION} ./scripts/install_python_toolchain.sh
+  VIRTUALENV=${VIRTUALENV} ./scripts/install_python_toolchain.sh
   popd
 }
 
@@ -98,11 +110,14 @@ with_python=1
 with_system_cmake=1
 with_ccache=1
 
+with_capi=1
+with_capi_framework=0
+with_ios=0
 with_ccache=1
 with_visualization=1
-
-python3=0
-python35=0
+with_remotefs=1
+release_opt_for_size=0
+debug_opt_for_size=0
 
 ###############################################################################
 #
@@ -114,26 +129,36 @@ while [ $# -gt 0 ]
     
     --install-python-toolchain) python_only=1;;
     
+    --release-opt-for-size) release_opt_for_size=1;;
+    --debug-opt-for-size)   debug_opt_for_size=1;;
+    --target-ios)           with_ios=1; with_python=0; with_capi=1; release_opt_for_size=1;; 
+
     --with-system-cmake)    with_system_cmake=1;;
     --no-system-cmake)      with_system_cmake=0;;
 
     --with-ccache)          with_ccache=1;;
     --no-ccache)            with_ccache=0;;
     
+    --with-capi)            with_capi=1;;
+    --with-capi-framework)  with_capi=1; with_capi_framework=1;;
+    --no-capi)              with_capi=0;; 
+
     --with-python)          with_python=1;;
     --no-python)            with_python=0;;
 
     --with-visualization)   with_visualization=1;;
     --no-visualization)     with_visualization=0;;
 
+    --with-remotefs)        with_remotefs=1;;
+    --no-remotefs)          with_remotefs=0;;
+
     --yes)                  default_yes=1;;
 
-    --python3)              python3=1;;
-    --python3.5)            python35=1;;
-    
     --help)                 print_help ;;
 
     -D)                     CMAKE_CONFIG_FLAGS="${CMAKE_CONFIG_FLAGS} -D $2"; shift ;;
+
+    --virtualenv)           VIRTUALENV="$2"; shift ;;
     *) unknown_option $1 ;;
   esac
   shift
@@ -144,23 +169,6 @@ if [[ $cleanup_option == 1 ]]; then
   exit 0
 fi
 
-
-if [[ $python35 == 1 && $python3 ]]; then
-  echo "Two version of Python specified. Pick one."
-  exit 1
-fi
-
-
-if [[ $python3 == 1 ]]; then
-  CMAKE_CONFIG_FLAGS="${CMAKE_CONFIG_FLAGS} -DPYTHON_VERSION=\"python3.4m\""
-  PYTHON_VERSION="python3.4m"
-elif [[ $python35 == 1 ]]; then
-  CMAKE_CONFIG_FLAGS="${CMAKE_CONFIG_FLAGS} -DPYTHON_VERSION=\"python3.5m\""
-  PYTHON_VERSION="python3.5m"
-else
-  CMAKE_CONFIG_FLAGS="${CMAKE_CONFIG_FLAGS} -DPYTHON_VERSION=\"python2.7\""
-  PYTHON_VERSION="python2.7"
-fi
 
 if [[ $python_only == 1 ]]; then
   install_python_toolchain
@@ -180,13 +188,41 @@ else
   CMAKE_CONFIG_FLAGS="$CMAKE_CONFIG_FLAGS -DTC_BUILD_PYTHON=0"
 fi
 
-# If we need to build python, we also need to install the python toolchain
+if [[ $release_opt_for_size == 1 ]]; then
+  CMAKE_CONFIG_FLAGS="$CMAKE_CONFIG_FLAGS -DRELEASE_OPT_FOR_SIZE=1"
+fi
+
+if [[ $debug_opt_for_size == 1 ]]; then
+  CMAKE_CONFIG_FLAGS="$CMAKE_CONFIG_FLAGS -DDEBUG_OPT_FOR_SIZE=1"
+fi
+
+# Check what is needed with the remote_fs stuff
+if [[ $with_capi == 1 ]]; then
+  CMAKE_CONFIG_FLAGS="$CMAKE_CONFIG_FLAGS -DTC_BUILD_CAPI=1"
+  if [[ $with_capi_framework == 1 ]]; then
+    CMAKE_CONFIG_FLAGS="$CMAKE_CONFIG_FLAGS -DTC_BUILD_CAPI_FRAMEWORK=1"
+  fi
+  if [[ $with_ios == 1 ]]; then
+    CMAKE_CONFIG_FLAGS="$CMAKE_CONFIG_FLAGS -DARCH=arm64 -DTC_BUILD_IOS=1"
+  fi
+else
+  CMAKE_CONFIG_FLAGS="$CMAKE_CONFIG_FLAGS -DTC_BUILD_CAPI=0"
+fi
+
+# Do we need to build the visualization toolkit?
 if [[ $with_visualization == 1 ]]; then
   CMAKE_CONFIG_FLAGS="$CMAKE_CONFIG_FLAGS -DTC_BUILD_VISUALIZATION_CLIENT=1"
 else
   CMAKE_CONFIG_FLAGS="$CMAKE_CONFIG_FLAGS -DTC_BUILD_VISUALIZATION_CLIENT=0"
 fi
 
+
+# If we need to build python, we also need to install the python toolchain
+if [[ $with_remotefs == 1 ]]; then
+  CMAKE_CONFIG_FLAGS="$CMAKE_CONFIG_FLAGS -DTC_ENABLE_REMOTEFS=1"
+else
+  CMAKE_CONFIG_FLAGS="$CMAKE_CONFIG_FLAGS -DTC_ENABLE_REMOTEFS=0 -DTC_NO_CURL=1"
+fi
 
 
 ##################################################################3
@@ -203,10 +239,8 @@ uname -v
 
 
 if [[ $OSTYPE == darwin* ]]; then
-  if [[ -z $CC ]] && [[ -z $CXX ]]; then
-    CC=clang
-    CXX=clang++
-  fi
+  CC=clang
+  CXX=clang++
 fi
 
 # all other cases

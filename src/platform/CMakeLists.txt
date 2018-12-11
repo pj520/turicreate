@@ -2,7 +2,6 @@ project(TuriPlatformDepedentcode)
 
 subdirs(
   crash_handler
-  fiber
   minipsutil
   network
   parallel
@@ -12,4 +11,5 @@ subdirs(
   so_utils
   timer
   user_pagefault
+  config
   )

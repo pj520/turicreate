@@ -19,7 +19,7 @@
 #include <optimization/newton_method-inl.hpp>
 #include <optimization/gradient_descent-inl.hpp>
 #include <optimization/accelerated_gradient-inl.hpp>
-#include <optimization/lbfgs-inl.hpp>
+#include <optimization/lbfgs.hpp>
 
 
 using namespace turi;
@@ -368,12 +368,12 @@ struct optimization_interface_test  {
       check_gradient_checker();
       check_hessian_checker();
 
-      TS_ASSERT(abs(stats.residual < 1e-5));
+      TS_ASSERT(abs(stats.residual) < 1e-5);
     }
 
     void test_lbfgs(){
       optimization::solver_return stats;
-      stats = turi::optimization::lbfgs(*solver_interface,
+      stats = turi::optimization::lbfgs_compat(solver_interface,
           init_point, opts);
       TS_ASSERT(arma::approx_equal(stats.solution, solution,"absdiff", 1e-2));
     }

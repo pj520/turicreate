@@ -1,18 +1,29 @@
-#bin/bash
+#!/bin/bash
 # has to be run from root of the repo
 set -x
 set -e
 
-virtualenv ${PWD}/deps/env
-source ${PWD}/deps/env/bin/activate
+if [[ -z $VIRTUALENV ]]; then
+  VIRTUALENV=virtualenv
+fi
 
-python_scripts=deps/env/bin
+$VIRTUALENV deps/env
+source deps/env/bin/activate
 
-function make_windows_exec_link {
-  targetname=$1/`basename $2 .exe`
-  echo "#!/bin/sh" > $targetname
-  echo "$2 \$@" >> $targetname
-}
+PYTHON="${PWD}/deps/env/bin/python"
+PIP="${PYTHON} -m pip"
+
+PYTHON_MAJOR_VERSION=$(${PYTHON} -c 'import sys; print(sys.version_info.major)')
+PYTHON_MINOR_VERSION=$(${PYTHON} -c 'import sys; print(sys.version_info.minor)')
+PYTHON_VERSION="python${PYTHON_MAJOR_VERSION}.${PYTHON_MINOR_VERSION}"
+
+# TODO - not sure why 'm' is necessary here (and not in 2.7)
+# note that PYTHON_VERSION includes the word "python", like "python2.7" or "python3.6"
+PYTHON_FULL_NAME=${PYTHON_VERSION}m
+if [[ "${PYTHON_VERSION}" == "python2.7" ]]; then
+  PYTHON_FULL_NAME=python2.7
+fi
+
 
 function linux_patch_sigfpe_handler {
 if [[ $OSTYPE == linux* ]]; then
@@ -22,68 +33,14 @@ if [[ $OSTYPE == linux* ]]; then
 fi
 }
 
-
-function download_file {
-  # detect wget
-  echo "Downloading $2 from $1 ..."
-  if [ -z `which wget` ] ; then
-    if [ -z `which curl` ] ; then
-      echo "Unable to find either curl or wget! Cannot proceed with
-            automatic install."
-      exit 1
-    fi
-    curl $1 -o $2
-  else
-    wget $1 -O $2
-  fi
-} # end of download file
-
-haspython=0
-if [ -e deps/env/bin/python ]; then
-        haspython=1
-fi
-
-if [[ $haspython == 0 ]]; then
-        if [[ $OSTYPE == darwin* ]]; then
-                if [[ ${PYTHON_VERSION} == "python3.4m" ]]; then
-                        echo "Not supported yet"
-                        exit 1
-                elif [[ ${PYTHON_VERSION} == "python3.5m" ]]; then
-                        echo "Not supported yet"
-                        exit 1
-                else
-                        virtualenv deps/env
-                        source deps/env/bin/activate
-                        echo "skip conda"
-                fi
-        else
-                if [[ ${PYTHON_VERSION} == "python3.4m" ]]; then
-                        echo "Not supported yet"
-                        exit 1
-                elif [[ ${PYTHON_VERSION} == "python3.5m" ]]; then
-                        echo "Not supported yet"
-                        exit 1
-                else
-                        virtualenv deps/env
-                        source deps/env/bin/activate
-                        echo "skip conda"
-                fi
-        fi
-fi
-if [[ $OSTYPE == darwin* ]]; then
-        $python_scripts/pip install -r scripts/pip_mac_requirements.txt
-else
-        # Need pip>=8.1 to support linux manywheel so that scikit-learn will install without error
-        $python_scripts/pip install --upgrade "pip>=8.1"
-        $python_scripts/pip install -r scripts/pip_linux_initial_requirements.txt
-        $python_scripts/pip install -r scripts/pip_linux_requirements.txt
-fi
+$PIP install --upgrade "pip>=8.1"
+$PIP install -r scripts/requirements.txt
 
 mkdir -p deps/local/lib
 mkdir -p deps/local/include
 
 pushd deps/local/include
-for f in `ls ../../env/include/python2.7/*`; do  
+for f in `ls ../../env/include/$PYTHON_FULL_NAME/*`; do  
   ln -Ffs $f
 done
 popd

@@ -11,6 +11,7 @@ from __future__ import division as _
 from __future__ import absolute_import as _
 import turicreate as _turicreate
 from turicreate.toolkits.recommender.util import _Recommender
+from turicreate.cython.cy_server import QuietProgress
 
 def create(observation_data,
            user_id='user_id', item_id='item_id', target=None,
@@ -78,28 +79,27 @@ def create(observation_data,
     --------
     PopularityRecommender
     """
-
-    opts = {'model_name': 'popularity'}
-    response = _turicreate.toolkits._main.run("recsys_init", opts)
-    model_proxy = response['model']
+    
+    opts = {}
+    model_proxy = _turicreate.extensions.popularity()
+    model_proxy.init_options(opts)
 
     if user_data is None:
         user_data = _turicreate.SFrame()
     if item_data is None:
         item_data = _turicreate.SFrame()
+    nearest_items = _turicreate.SFrame()
 
-    opts = {'dataset': observation_data,
-            'user_id': user_id,
+    opts = {'user_id': user_id,
             'item_id': item_id,
             'target': target,
-            'user_data': user_data,
-            'item_data': item_data,
-            'nearest_items': _turicreate.SFrame(),
-            'model': model_proxy,
             'random_seed': 1}
 
-    response = _turicreate.toolkits._main.run('recsys_train', opts, verbose)
-    return PopularityRecommender(response['model'])
+    extra_data = {"nearest_items" : _turicreate.SFrame()}
+    with QuietProgress(verbose):
+        model_proxy.train(observation_data, user_data, item_data, opts, extra_data)
+
+    return PopularityRecommender(model_proxy)
 
 class PopularityRecommender(_Recommender):
     """

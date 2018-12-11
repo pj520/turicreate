@@ -16,10 +16,6 @@
 #include <optimization/line_search-inl.hpp>
 #include <table_printer/table_printer.hpp>
 
-#ifdef HAS_DISTRIBUTED
-#include <distributed/utils.hpp>
-#endif
-
 // TODO: List of todo's for this file
 //------------------------------------------------------------------------------
 // 1. Sparse hessian newton method?
@@ -102,7 +98,13 @@ inline solver_return newton_method(second_order_opt_interface& model,
       gradient += reg_gradient;
     }
     double residual = compute_residual(gradient);
-    
+
+    std::vector<std::string> stat_info = {std::to_string(iters),
+                                          std::to_string(stats.num_passes),
+                                          std::to_string(t.current_time())};
+    std::vector<std::string> row = model.get_status(point, stat_info);
+    printer.print_progress_row_strs(iters, row);
+
     // Keep track of previous point 
     DenseVector delta_point = point;
     delta_point.zeros();
@@ -133,7 +135,7 @@ inline solver_return newton_method(second_order_opt_interface& model,
         / std::max(arma::norm(gradient, 2), OPTIMIZATION_ZERO);
 
 
-      // LDLT Decomposition failed. 
+      // LDLT Decomposition failed.
       if (relative_error > convergence_threshold){
         logprogress_stream << "WARNING: Matrix is close to being singular or"
           << " badly scaled. The solution is accurate only up to a tolerance of " 
@@ -176,16 +178,11 @@ inline solver_return newton_method(second_order_opt_interface& model,
       }
 
       // Print progress
-      auto stat_info = {std::to_string(iters), 
-                        std::to_string(stats.num_passes),
-                        std::to_string(t.current_time())};
-      auto row = model.get_status(point, stat_info);
+      stat_info = {std::to_string(iters),
+                   std::to_string(stats.num_passes),
+                   std::to_string(t.current_time())};
+      row = model.get_status(point, stat_info);
       printer.print_progress_row_strs(iters, row);
-
-#ifdef HAS_DISTRIBUTED
-      bool gradient_all_equals = distributed_check_equals(arma::norm(gradient, 2));
-      ASSERT_MSG(gradient_all_equals, "detect inconsistent gradients");
-#endif
     }
     printer.print_footer();
 
@@ -217,7 +214,6 @@ inline solver_return newton_method(second_order_opt_interface& model,
 
 } // optimizaiton
 
-/// \}
 } // turicreate
 
 #endif 

@@ -4,6 +4,7 @@
  * be found in the LICENSE.txt file or at https://opensource.org/licenses/BSD-3-Clause
  */
 #include "Comparison.hpp"
+
 #include <cmath>
 
 namespace CoreML {
@@ -49,6 +50,8 @@ namespace CoreML {
                     return a.neuralnetworkclassifier() == b.neuralnetworkclassifier();
                 case Model::kNeuralNetwork:
                     return a.neuralnetwork() == b.neuralnetwork();
+                case Model::kBayesianProbitRegressor:
+                    return a.bayesianprobitregressor() == b.bayesianprobitregressor();
                 case Model::kOneHotEncoder:
                     return a.onehotencoder() == b.onehotencoder();
                 case Model::kImputer:
@@ -59,6 +62,8 @@ namespace CoreML {
                     return a.dictvectorizer() == b.dictvectorizer();
                 case Model::kScaler:
                     return a.scaler() == b.scaler();
+                case Model::kNonMaximumSuppression:
+                    return a.nonmaximumsuppression() == b.nonmaximumsuppression();
                 case Model::kCategoricalMapping:
                     return a.categoricalmapping() == b.categoricalmapping();
                 case Model::kNormalizer:
@@ -67,6 +72,14 @@ namespace CoreML {
                     return a.arrayfeatureextractor() == b.arrayfeatureextractor();
                 case Model::kIdentity:
                     return true;
+                case Model::kCustomModel:
+                    return a.custommodel() == b.custommodel();
+                case Model::kWordTagger:
+                    return a.wordtagger() == b.wordtagger();
+                case Model::kTextClassifier:
+                    return a.textclassifier() == b.textclassifier();
+                case Model::kVisionFeaturePrint:
+                    return a.visionfeatureprint() == b.visionfeatureprint();
                 case Model::TYPE_NOT_SET:
                     return true;
             }
@@ -133,7 +146,22 @@ namespace CoreML {
             }
             return true;
         }
-        
+
+        static inline bool hasFlexibleShape(const Specification::ArrayFeatureType &marray) {
+            return marray.ShapeFlexibility_case() != Specification::ArrayFeatureType::SHAPEFLEXIBILITY_NOT_SET;
+        }
+
+        static inline int64_t rankOf(const Specification::ArrayFeatureType &marray) {
+            switch (marray.ShapeFlexibility_case()) {
+                case Specification::ArrayFeatureType::kEnumeratedShapes:
+                    return marray.enumeratedshapes().shapes(0).shape_size();
+                case  Specification::ArrayFeatureType::kShapeRange:
+                    return marray.shaperange().sizeranges_size();
+                case Specification::ArrayFeatureType::SHAPEFLEXIBILITY_NOT_SET:
+                    return marray.shape_size();
+            }
+        }
+
         static inline bool compareArrayTypes(const Specification::FeatureType& x,
                                              const Specification::FeatureType& y) {
             const auto& xp = x.multiarraytype();
@@ -141,12 +169,16 @@ namespace CoreML {
             if (xp.datatype() != yp.datatype()) {
                 return false;
             }
-            if (xp.shape_size() != yp.shape_size()) {
+
+            if (rankOf(xp) != rankOf(yp)) {
                 return false;
             }
-            for (int i=0; i<xp.shape_size(); i++) {
-                if (xp.shape(i) != yp.shape(i)) {
-                    return false;
+
+            if (!hasFlexibleShape(xp) && !hasFlexibleShape(yp)) {
+                for (int i=0; i<xp.shape_size(); i++) {
+                    if (xp.shape(i) != yp.shape(i)) {
+                        return false;
+                    }
                 }
             }
             return true;
@@ -177,11 +209,26 @@ namespace CoreML {
             }
             return true;
         }
-        
+
+        static inline bool compareSequenceTypes(const Specification::FeatureType& x,
+                                                const Specification::FeatureType& y) {
+            const auto& xp = x.sequencetype();
+            const auto& yp = y.sequencetype();
+
+            if (xp.Type_case() != yp.Type_case()) {
+                return false;
+            }
+
+            // TODO: Compare sizes
+            
+            return true;
+        }
+
+
         bool operator==(const FeatureType& a,
                         const FeatureType& b) {
             
-            // TODO : commenting out the below, because it breaks pipeline validator.
+            // TODO @znation: commenting out the below, because it breaks pipeline validator.
             // Pipeline validator assumes that T -> optional<T> should be allowed, but
             // it's using this operator== to test that, and failing.
             // We should eventually fix that by making a notion of "is valid as type" method
@@ -210,6 +257,8 @@ namespace CoreML {
                     return compareDictionaryTypes(a, b);
                 case Specification::FeatureType::kImageType:
                     return compareImageTypes(a, b);
+                case Specification::FeatureType::kSequenceType:
+                    return compareSequenceTypes(a,b);
                 case Specification::FeatureType::TYPE_NOT_SET:
                     return true;
             }
@@ -497,6 +546,14 @@ namespace CoreML {
             return true;
         }
         
+        bool operator==(const BayesianProbitRegressor& a,
+                        const BayesianProbitRegressor& b) {
+#pragma unused(a)
+#pragma unused(b)
+#pragma mark -- equality operator for BOPR not yet implemented
+            throw std::logic_error("operator not implemented");
+        }
+
 #pragma mark Classifiers
         
         bool operator==(const GLMClassifier& a,
@@ -572,11 +629,11 @@ namespace CoreML {
                 return false;
             }
             switch (a.ClassLabels_case()) {
-                case GLMClassifier::kInt64ClassLabels:
+                case SupportVectorClassifier::kInt64ClassLabels:
                     return a.int64classlabels() == b.int64classlabels();
-                case GLMClassifier::kStringClassLabels:
+                case SupportVectorClassifier::kStringClassLabels:
                     return a.stringclasslabels() == b.stringclasslabels();
-                case GLMClassifier::CLASSLABELS_NOT_SET:
+                case SupportVectorClassifier::CLASSLABELS_NOT_SET:
                     return true;
             }
         }
@@ -593,11 +650,11 @@ namespace CoreML {
                 return false;
             }
             switch (a.ClassLabels_case()) {
-                case GLMClassifier::kInt64ClassLabels:
+                case TreeEnsembleClassifier::kInt64ClassLabels:
                     return a.int64classlabels() == b.int64classlabels();
-                case GLMClassifier::kStringClassLabels:
+                case TreeEnsembleClassifier::kStringClassLabels:
                     return a.stringclasslabels() == b.stringclasslabels();
-                case GLMClassifier::CLASSLABELS_NOT_SET:
+                case TreeEnsembleClassifier::CLASSLABELS_NOT_SET:
                     return true;
             }
             return true;
@@ -615,11 +672,11 @@ namespace CoreML {
                 return false;
             }
             switch (a.ClassLabels_case()) {
-                case GLMClassifier::kInt64ClassLabels:
+                case NeuralNetworkClassifier::kInt64ClassLabels:
                     return a.int64classlabels() == b.int64classlabels();
-                case GLMClassifier::kStringClassLabels:
+                case NeuralNetworkClassifier::kStringClassLabels:
                     return a.stringclasslabels() == b.stringclasslabels();
-                case GLMClassifier::CLASSLABELS_NOT_SET:
+                case NeuralNetworkClassifier::CLASSLABELS_NOT_SET:
                     return true;
             }
         }
@@ -634,6 +691,129 @@ namespace CoreML {
             if (a.preprocessing() != b.preprocessing()) {
                 return false;
             }
+            return true;
+        }
+
+        bool operator==(const CustomModel& a,
+                        const CustomModel& b) {
+            if (a.classname() != b.classname()) {
+                return false;
+            }
+            // TODO: Check parameters match
+            return true;
+        }
+
+        bool operator==(const CoreMLModels::WordTagger& a,
+                        const CoreMLModels::WordTagger& b) {
+            
+            if (a.revision()!= b.revision()) {
+                return false;
+            }
+            
+            if (a.language()!= b.language()) {
+                return false;
+            }
+            
+            if (a.tokensoutputfeaturename() != b.tokensoutputfeaturename()) {
+                return false;
+            }
+            
+            if (a.tokentagsoutputfeaturename() != b.tokentagsoutputfeaturename()) {
+                return false;
+            }
+            
+            if (a.tokenlocationsoutputfeaturename() != b.tokenlocationsoutputfeaturename()) {
+                return false;
+            }
+            
+            if (a.tokenlengthsoutputfeaturename() != b.tokenlengthsoutputfeaturename()) {
+                return false;
+            }
+            
+            if (a.Tags_case()!= b.Tags_case()) {
+                return false;
+            }
+            
+            switch (a.Tags_case()) {
+                case CoreMLModels::WordTagger::kStringTags:
+                    if (a.stringtags() != b.stringtags()) {
+                        return false;
+                    }
+                    break;
+                case CoreMLModels::WordTagger::TAGS_NOT_SET:
+                    break;
+            }
+            
+            if (a.modelparameterdata().size() != b.modelparameterdata().size()) {
+                return false;
+            }
+            
+            size_t s = a.modelparameterdata().size();
+            if (s > 0) {
+                if (memcmp(&a.modelparameterdata()[0], &b.modelparameterdata()[0], s)) {
+                    return false;
+                }
+            }
+                
+            return true;
+        }
+
+        bool operator==(const CoreMLModels::TextClassifier& a,
+                        const CoreMLModels::TextClassifier& b) {
+            
+            if (a.revision()!= b.revision()) {
+                return false;
+            }
+            
+            if (a.language()!= b.language()) {
+                return false;
+            }
+            
+            if (a.ClassLabels_case()!= b.ClassLabels_case()) {
+                return false;
+            }
+            
+            switch (a.ClassLabels_case()) {
+                case CoreMLModels::TextClassifier::kStringClassLabels:
+                    if (a.stringclasslabels()!= b.stringclasslabels()) {
+                        return false;
+                    }
+                    break;
+                case CoreMLModels::TextClassifier::CLASSLABELS_NOT_SET:
+                    break;
+            }
+            
+            if (a.modelparameterdata().size() != b.modelparameterdata().size()) {
+                return false;
+            }
+            
+            size_t s = a.modelparameterdata().size();
+            if (s > 0) {
+                if (memcmp(&a.modelparameterdata()[0], &b.modelparameterdata()[0], s)) {
+                    return false;
+                }
+            }
+            
+            return true;
+        }
+
+        bool operator==(const CoreMLModels::VisionFeaturePrint& a,
+                        const CoreMLModels::VisionFeaturePrint& b) {
+
+            if (a.VisionFeaturePrintType_case() != b.VisionFeaturePrintType_case()) {
+                return false;
+            }
+            
+            switch (a.VisionFeaturePrintType_case()) {
+                case CoreMLModels::VisionFeaturePrint::kScene:
+                    if (a.scene().version() != b.scene().version()) {
+                        return false;
+                    }
+                    break;
+                case CoreMLModels::VisionFeaturePrint::VISIONFEATUREPRINTTYPE_NOT_SET:
+                    break;
+            }
+            
             return true;
         }
         
@@ -782,6 +962,50 @@ namespace CoreML {
             }
             if (a.scalevalue() != b.scalevalue()) {
                 return false;
+            }
+            return true;
+        }
+        
+        bool operator==(const NonMaximumSuppression& a,
+                        const NonMaximumSuppression& b) {
+            // Parameters
+            if (a.iouthreshold() != b.iouthreshold()) {
+                return false;
+            }
+            if (a.confidencethreshold() != b.confidencethreshold()) {
+                return false;
+            }
+            
+            // Input and outputs feature names
+            if (a.confidenceinputfeaturename() != b.confidenceinputfeaturename()) {
+                return false;
+            }
+            if (a.coordinatesinputfeaturename() != b.coordinatesinputfeaturename()) {
+                return false;
+            }
+            if (a.iouthresholdinputfeaturename() != b.iouthresholdinputfeaturename()) {
+                return false;
+            }
+            if (a.confidencethresholdinputfeaturename() != b.confidencethresholdinputfeaturename()) {
+                return false;
+            }
+            if (a.confidenceoutputfeaturename() != b.confidenceoutputfeaturename()) {
+                return false;
+            }
+            if (a.coordinatesoutputfeaturename() != b.coordinatesoutputfeaturename()) {
+                return false;
+            }
+            
+            // Same suppression method
+            if (a.SuppressionMethod_case() != b.SuppressionMethod_case()) {
+                return false;
+            }
+            
+            // Method-specific parameters
+            if (a.SuppressionMethod_case() == NonMaximumSuppression::SuppressionMethodCase::kPickTop) {
+                if (a.picktop().perclass() != b.picktop().perclass()) {
+                    return false;
+                }
             }
             return true;
         }

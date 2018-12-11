@@ -21,6 +21,7 @@
 #include <unity/toolkits/factorization/factorization_model.hpp>
 #include <unity/toolkits/factorization/factors_to_sframe.hpp>
 #include <unity/toolkits/recsys/recsys_model_base.hpp>
+#include <util/basic_types.hpp>
 #include <util/fast_top_k.hpp>
 
 namespace turi { namespace factorization {
@@ -50,7 +51,7 @@ public:
   static constexpr bool num_factors_known = (_num_factors_if_known != DYNAMIC);
 
   typedef typename std::conditional<num_factors_known, 
-            arma::Row<float>::fixed<_num_factors_if_known>, 
+            arma::Row<float>::fixed<static_cast<arma::uword>(_num_factors_if_known)>,
             arma::Row<float> >::type factor_type;
 
   typedef row_major_matrix<float> factor_matrix_type;
@@ -739,7 +740,8 @@ public:
       const std::shared_ptr<v2::ml_data_side_features>& known_side_features) const {
 
     static constexpr size_t USER_COLUMN_INDEX = recsys::recsys_model_base::USER_COLUMN_INDEX;
-    static constexpr size_t ITEM_COLUMN_INDEX = recsys::recsys_model_base::ITEM_COLUMN_INDEX;
+    static constexpr TURI_ATTRIBUTE_UNUSED_NDEBUG size_t ITEM_COLUMN_INDEX
+      = recsys::recsys_model_base::ITEM_COLUMN_INDEX;
 
     DASSERT_GE(query_row.size(), 2);
     DASSERT_EQ(query_row[USER_COLUMN_INDEX].column_index, USER_COLUMN_INDEX);
@@ -917,7 +919,7 @@ public:
       factor_norms.resize(V.n_rows); 
 
       if(!factor_norms_computed) {
-        for(flex_int i = 0; i < V.n_rows; ++i) {
+        for(flex_int i = 0; i < truncate_check<int64_t>(V.n_rows); ++i) {
           factor_norms(i) = arma::norm(V.row(i));
         }
         factor_norms_computed = true;

@@ -8,6 +8,7 @@
 #include <boost/program_options.hpp>
 #include <regex>
 #include <boost/algorithm/string.hpp>
+#include <globals/globals.hpp>
 #include <fileio/fs_utils.hpp>
 #include <fileio/sanitize_url.hpp>
 #include <fileio/general_fstream.hpp>
@@ -181,7 +182,7 @@ int main(int argc, char** argv) {
     print_help(argv);
     return 0;
   }
-  
+  turi::globals::initialize_globals_from_environment(argv[0]);  
   std::string command = argv[1];
   if (command == "cp" && argc == 4) {
     std::string srcpath = argv[2];
@@ -199,7 +200,7 @@ int main(int argc, char** argv) {
     if (!success) {
       std::cerr << "Unable to create directory at " 
                 << turi::sanitize_url(dstpath) << "\n";
-      return false;
+      return 1;
     }
   } else if (command == "rm" && argc == 3) {
     std::string dstpath = argv[2];
@@ -208,7 +209,7 @@ int main(int argc, char** argv) {
     if (!success) {
       std::cerr << "Unable to delete path at " 
                 << turi::sanitize_url(dstpath) << "\n";
-      return false;
+      return 1;
     }
   } else if (command == "rmr" && argc == 3) {
     std::string dstpath = argv[2];
@@ -217,7 +218,7 @@ int main(int argc, char** argv) {
     if (!success) {
       std::cerr << "Unable to recursively delete path at " 
                 << turi::sanitize_url(dstpath) << "\n";
-      return false;
+      return 1;
     }
   } else if (command == "ls" && argc == 3) {
     std::string url = argv[2];

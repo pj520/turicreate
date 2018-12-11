@@ -21,7 +21,7 @@ namespace CoreML {
     TreeEnsembleClassifier::TreeEnsembleClassifier
     (const std::string& predictedClassOutputName,
      const std::string& classProbabilityOutputName,
-     const std::string& name, const std::string& description)
+     const std::string& description)
     : TreeEnsembleBase(Model(description), true /* isClassifier */),
       tree_classifier_parameters(m_spec->mutable_treeensembleclassifier())
     {
@@ -31,7 +31,7 @@ namespace CoreML {
 
     TreeEnsembleRegressor::TreeEnsembleRegressor
     (const std::string& predictedValueOutput,
-     const std::string& name, const std::string& description)
+     const std::string& description)
     : TreeEnsembleBase(Model(description), false /* isClassifier */)
     , tree_regressor_parameters(m_spec->mutable_treeensembleregressor())
     {

@@ -10,7 +10,7 @@
 
 namespace CoreML {
   
-  class EXPORT FeatureVectorizer : public Model {
+  class FeatureVectorizer : public Model {
   public:
     
     /*  Initialize as a generic transform.

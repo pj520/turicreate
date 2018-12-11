@@ -31,7 +31,7 @@ cdef extern from "<unity/lib/api/unity_sketch_interface.hpp>" namespace "turi":
     cdef cppclass unity_sketch_base:
         pass
 
-cdef extern from "<unity/lib/api/model_interface.hpp>" namespace "turi":
+cdef extern from "<unity/lib/extensions/model_base.hpp>" namespace "turi":
     cdef cppclass model_base:
         pass
 
@@ -52,6 +52,6 @@ ctypedef shared_ptr[unity_sframe_base] unity_sframe_base_ptr
 ctypedef shared_ptr[unity_sgraph_base] unity_sgraph_base_ptr
 ctypedef shared_ptr[unity_sketch_base] unity_sketch_base_ptr
 ctypedef shared_ptr[model_base] model_base_ptr
-ctypedef shared_ptr[unity_global_base] unity_global_base_ptr 
+ctypedef shared_ptr[unity_global_base] unity_global_base_ptr
 ctypedef shared_ptr[unity_sarray_builder_base] unity_sarray_builder_base_ptr
 ctypedef shared_ptr[unity_sframe_builder_base] unity_sframe_builder_base_ptr

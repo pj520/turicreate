@@ -7,6 +7,9 @@
 #define __TC_HISTOGRAM
 
 #include <sframe/groupby_aggregate_operators.hpp>
+#include <unity/lib/visualization/histogram.hpp>
+#include <unity/lib/visualization/plot.hpp>
+#include <unity/lib/visualization/vega_spec.hpp>
 #include <unity/lib/gl_sarray.hpp>
 
 #include "transformation.hpp"
@@ -115,6 +118,10 @@ class histogram : public histogram_parent {
     virtual void merge_results(std::vector<histogram_result>& transformers) override;
     virtual void init(const gl_sarray& source) override;
 };
+
+std::shared_ptr<Plot> plot_histogram(
+  const gl_sarray& sa, const flexible_type& xlabel, const flexible_type& ylabel, 
+  const flexible_type& title);
 
 }}
 

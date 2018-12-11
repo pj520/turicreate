@@ -1,5 +1,7 @@
 project(TuriTest)
 
+enable_testing()
+
 subdirs(
         toolkits
         ml_data
@@ -10,13 +12,13 @@ subdirs(
         logger
         timer
         random
+        # fault
         nanosockets
         fileio
         shmipc
         cppipc
         flexible_type
         parallel
-        fiber
         lambda
         sframe
         sgraph
@@ -29,3 +31,10 @@ subdirs(
         network
         process
   )
+if(${TC_BUILD_CAPI}) 
+  message("Building C API Tests.")
+  subdirs(capi)
+else()
+  message("Skipping build of C APIs Tests.")
+endif()
+

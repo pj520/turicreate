@@ -1,5 +1,12 @@
 project(Turi)
 
+if(${TC_BUILD_CAPI}) 
+  message("Building C API.")
+  subdirs(capi)
+else()
+  message("Skipping build of C APIs.")
+endif()
+
 subdirs(
   toolkits
   cppipc
@@ -18,6 +25,7 @@ subdirs(
   logger
   ml_data
   nanosockets
+  objc
   optimization
   platform
   random
@@ -32,4 +40,3 @@ subdirs(
   util
   visualization
   )
-

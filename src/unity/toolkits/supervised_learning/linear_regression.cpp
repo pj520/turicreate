@@ -8,6 +8,9 @@
 // ML Data
 #include <ml_data/ml_data.hpp>
 
+// Core ML
+#include <unity/toolkits/coreml_export/linear_models_exporter.hpp>
+
 // Toolkits
 #include <toolkits/supervised_learning/linear_regression_opt_interface.hpp>
 #include <toolkits/supervised_learning/supervised_learning_utils-inl.hpp>
@@ -17,7 +20,7 @@
 #include <optimization/newton_method-inl.hpp>
 #include <optimization/gradient_descent-inl.hpp>
 #include <optimization/accelerated_gradient-inl.hpp>
-#include <optimization/lbfgs-inl.hpp>
+#include <optimization/lbfgs.hpp>
 
 // Regularizer
 #include <optimization/regularizers-inl.hpp>
@@ -51,15 +54,6 @@ namespace supervised {
  */
 linear_regression::~linear_regression(){
   lr_interface.reset();
-}
-
-
-
-/**
- * Returns the name of the model.
- */
-std::string linear_regression::name(){
-  return "regression_linear_regression";
 }
 
 /**
@@ -257,7 +251,7 @@ void linear_regression::train(){
     stats = turi::optimization::accelerated_gradient(*lr_interface,
         init_point, solver_options, reg);
   } else if (solver == "lbfgs"){
-      stats = turi::optimization::lbfgs(*lr_interface, init_point,
+      stats = turi::optimization::lbfgs_compat(lr_interface, init_point,
           solver_options, smooth_reg);
   } else {
       std::ostringstream msg;
@@ -302,6 +296,16 @@ void linear_regression::train(){
   std::shared_ptr<unity_sframe> unity_progress = std::make_shared<unity_sframe>();
   unity_progress->construct_from_sframe(stats.progress_table);
   state["progress"] = to_variant(unity_progress);
+
+  // Compute validation-set stats.
+  if (lr_interface->num_validation_examples() > 0) {
+    // Recycle lvalues from stats to use as out parameters here, now that we're
+    // otherwise done reading from stats.
+    lr_interface->compute_validation_first_order_statistics(
+        stats.solution, stats.gradient, stats.func_value);
+    state["validation_loss"] =  stats.func_value;
+    state["validation_rmse"] =  sqrt((stats.func_value)/examples);
+  }
 
   reg.reset();
   smooth_reg.reset();
@@ -412,6 +416,18 @@ size_t linear_regression::get_version() const{
   //  4 -  Version 1.7
   return LINEAR_REGRESSION_MODEL_VERSION;  
 }
+
+std::shared_ptr<coreml::MLModelWrapper> linear_regression::export_to_coreml() {
+
+  std::map<std::string, flexible_type> context_metadata = {
+    {"class", name()},
+    {"version", std::to_string(get_version())},
+    {"short_description", "Linear regression model."}};
+
+  return export_linear_regression_as_model_asset(ml_mdata, coefs,
+                                                 context_metadata);
+}
+
 
 
 } // supervised

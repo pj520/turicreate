@@ -23,19 +23,11 @@
 
 // Regularizer
 #include <optimization/regularizers-inl.hpp>
-#include <optimization/lbfgs-inl.hpp>
 #include <optimization/newton_method-inl.hpp>
 #include <optimization/accelerated_gradient-inl.hpp>
 
 #include <toolkits/supervised_learning/linear_svm.hpp>
 #include <toolkits/supervised_learning/linear_svm_opt_interface.hpp>
-
-// Distributed
-#ifdef HAS_DISTRIBUTED
-#include <distributed/distributed_context.hpp>
-#include <rpc/dc_global.hpp>
-#include <rpc/dc.hpp>
-#endif
 
 // Utilities
 #include <numerics/armadillo.hpp>
@@ -72,17 +64,12 @@ linear_svm_scaled_logistic_opt_interface::linear_svm_scaled_logistic_opt_interfa
 
   // Initialize reader and other data
   examples = data.num_rows();
-#ifdef HAS_DISTRIBUTED 
-  auto dc = distributed_control_global::get_instance();
-  dc->all_reduce(examples);
-#endif
   features = data.num_columns();
   n_threads = turi::thread_pool::get_instance().size();
 
   // Initialize the number of variables to 1 (bias term)
   primal_variables = get_number_of_coefficients(smodel.get_ml_metadata());
   is_dense = (primal_variables <= 3 * features) ? true : false;
-
 }
 
 /**
@@ -124,6 +111,12 @@ size_t linear_svm_scaled_logistic_opt_interface::num_examples() const{
   return examples;
 }
 
+/**
+* Get the number of validation-set examples for the model
+*/
+size_t linear_svm_scaled_logistic_opt_interface::num_validation_examples() const{
+  return valid_data.num_rows();
+}
 
 /**
 * Get the number of variables for the model
@@ -181,6 +174,34 @@ void linear_svm_scaled_logistic_opt_interface::rescale_solution(DenseVector& coe
     scaler->transform(coefs);
   }
 }
+
+double linear_svm_scaled_logistic_opt_interface::get_validation_accuracy() {
+  DASSERT_TRUE(valid_data.num_rows() > 0);
+
+  auto eval_results = smodel.evaluate(valid_data, "train");
+  auto results = eval_results.find("accuracy");
+  if(results == eval_results.end()) {
+    log_and_throw("No Validation Accuracy.");
+  }
+
+  variant_type variant_accuracy = results->second;
+  double accuracy = variant_get_value<flexible_type>(variant_accuracy).to<double>();
+  return accuracy;
+}
+
+double linear_svm_scaled_logistic_opt_interface::get_training_accuracy() {
+  auto eval_results = smodel.evaluate(data, "train");
+  auto results = eval_results.find("accuracy");
+
+  if(results == eval_results.end()) {
+    log_and_throw("No Validation Accuracy.");
+  }
+  variant_type variant_accuracy = results->second;
+  double accuracy = variant_get_value<flexible_type>(variant_accuracy).to<double>();
+
+  return accuracy;
+}
+
 
 /**
  * Compute the first order statistics
@@ -260,14 +281,6 @@ void linear_svm_scaled_logistic_opt_interface::compute_first_order_statistics(co
     function_value += f[i];
     gradient += G[i];
   }
-
-#ifdef HAS_DISTRIBUTED
-  auto dc = distributed_control_global::get_instance();
-  DASSERT_TRUE(dc != NULL);
-  dc->all_reduce(gradient, true);
-  dc->all_reduce(function_value, true);
-#endif
-
 }
 
 

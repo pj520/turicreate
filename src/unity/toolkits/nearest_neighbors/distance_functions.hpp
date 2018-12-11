@@ -97,6 +97,8 @@ void inline all_pairs_transformed_dot_product(const DenseMatrix& A,
 
 struct distance_metric {
 
+  virtual ~distance_metric() = default;
+
   // factory methods
   static inline std::shared_ptr<distance_metric> make_dist_instance(const std::string& dist_name);
 
@@ -105,18 +107,22 @@ struct distance_metric {
 
   virtual double distance(const DenseVector& a, const DenseVector& b) const {
     ASSERT_MSG(false, "Dense vector type not supported by this distance metric.");
+    ASSERT_UNREACHABLE();
   }
 
   virtual double distance(const SparseVector& a, const SparseVector& b) const {
     ASSERT_MSG(false, "Sparse vector type not supported by this distance metric.");
+    ASSERT_UNREACHABLE();
   }
 
   virtual double distance(const std::string& a, const std::string& b) const {
     ASSERT_MSG(false, "String type not supported by this distance metric.");
+    ASSERT_UNREACHABLE();
   }
 
   virtual double distance(const std::vector<double>& a, const std::vector<double>& b) const {
     ASSERT_MSG(false, "Vector of double type not supported by this distance metric.");
+    ASSERT_UNREACHABLE();
   }
 
 };
@@ -241,6 +247,7 @@ struct transformed_dot_product final : public distance_metric {
 /* jaccard distance 
  */
 struct jaccard final : public distance_metric {
+  using distance_metric::distance;
   
   double distance(const DenseVector& a, const DenseVector& b) const {
     DASSERT_EQ(a.size(), b.size());

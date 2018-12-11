@@ -82,8 +82,10 @@ namespace CoreML {
 
         std::vector<Model> out;
         auto container = p.models();
-
-        out.reserve(container.size());
+        
+        int size = container.size();
+        assert(size >= 0);
+        out.reserve(static_cast<size_t>(size));
 
         for(auto model : container) {
             out.push_back(Model(model));

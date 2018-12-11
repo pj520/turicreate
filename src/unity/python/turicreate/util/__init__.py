@@ -64,10 +64,6 @@ def _get_aws_credentials():
         environment variable. The second string of the tuple is the value of the
         AWS_SECRET_ACCESS_KEY environment variable.
 
-    See Also
-    --------
-    set_credentials
-
     Examples
     --------
     >>> turicreate.aws.get_credentials()
@@ -75,9 +71,9 @@ def _get_aws_credentials():
     """
 
     if (not 'AWS_ACCESS_KEY_ID' in _os.environ):
-        raise KeyError('No access key found. Please set the environment variable AWS_ACCESS_KEY_ID, or using turicreate.aws.set_credentials()')
+        raise KeyError('No access key found. Please set the environment variable AWS_ACCESS_KEY_ID.')
     if (not 'AWS_SECRET_ACCESS_KEY' in _os.environ):
-        raise KeyError('No secret key found. Please set the environment variable AWS_SECRET_ACCESS_KEY, or using turicreate.aws.set_credentials()')
+        raise KeyError('No secret key found. Please set the environment variable AWS_SECRET_ACCESS_KEY.')
     return (_os.environ['AWS_ACCESS_KEY_ID'], _os.environ['AWS_SECRET_ACCESS_KEY'])
 
 
@@ -114,7 +110,7 @@ def _make_internal_url(url):
     For hdfs urls:
       Error if hadoop classpath is not set
     For local file urls:
-      conver slashes for windows sanity
+      convert slashes for windows sanity
 
     Parameters
     ----------
@@ -431,7 +427,7 @@ def _get_temp_file_location():
     Returns user specified temporary file location.
     The temporary location is specified through:
 
-    >>> turicreate.set_runtime_config('TURI_CACHE_FILE_LOCATIONS', ...)
+    >>> turicreate.config.set_runtime_config('TURI_CACHE_FILE_LOCATIONS', ...)
 
     '''
     from ..connect import main as _glconnect
@@ -628,6 +624,7 @@ def subprocess_exe(exe, args, setup=None, teardown=None,
     """
     import logging
     import os
+    from . import file_util
     ret = {'success': True,
            'return_code': None,
            'stdout': None,
@@ -720,15 +717,50 @@ def subprocess_exe(exe, args, setup=None, teardown=None,
 # Automatic GPU detection
 def _get_cuda_gpus():
     """
-    Returns a list of 0-based integer indices of available CUDA GPUs.
+    Returns a list of dictionaries, with the following keys:
+    - index (integer, device index of the GPU)
+    - name (str, GPU name)
+    - memory_free (float, free memory in MiB)
+    - memory_total (float, total memory in MiB)
     """
     import subprocess
     try:
-        ret = subprocess.check_output(["nvidia-smi", "-L"], universal_newlines=True).split('\n')
-        return [i for i, s in enumerate(ret) if 'GPU' in s]
+        output = subprocess.check_output(['nvidia-smi',
+                                          '--query-gpu=index,gpu_name,memory.free,memory.total',
+                                          '--format=csv,noheader,nounits'],
+                                         universal_newlines=True)
     except OSError:
         return []
-_CUDA_GPU_IDS = _get_cuda_gpus()
+
+    gpus = []
+    for gpu_line in output.split('\n'):
+        if gpu_line:
+            index, gpu_name, memory_free, memory_total = gpu_line.split(', ')
+            index = int(index)
+            memory_free = float(memory_free)
+            memory_total = float(memory_total)
+            gpus.append({
+                'index': index,
+                'name': gpu_name,
+                'memory_free': memory_free,
+                'memory_total': memory_total,
+            })
+    return gpus
+
+_CUDA_GPUS = _get_cuda_gpus()
+
+
+def _num_available_cuda_gpus():
+    return len(_CUDA_GPUS)
+
 
 def _num_available_gpus():
-    return len(_CUDA_GPU_IDS)
+    num_cuda = _num_available_cuda_gpus()
+    if num_cuda > 0:
+        return num_cuda
+
+    from turicreate.toolkits._mps_utils import has_fast_mps_support
+    if has_fast_mps_support():
+        return 1
+
+    return 0

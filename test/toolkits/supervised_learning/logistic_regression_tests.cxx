@@ -84,7 +84,6 @@ void run_logistic_regression_test(std::map<std::string, flexible_type> opts) {
 
   // Construct the ml_data
   ml_data data = model->construct_ml_data_using_current_metadata(X, y);
-  ml_data valid_data;
 
   // Check coefficients & options
   // ----------------------------------------------------------------------
@@ -112,13 +111,12 @@ void run_logistic_regression_test(std::map<std::string, flexible_type> opts) {
     = model->predict(data, "probability");
 
   // Save predictions made by the model
-  size_t rows;
   auto reader = _pred_margin->get_reader();
-  rows = reader->read_rows(0, examples, pred_margin);
+  reader->read_rows(0, examples, pred_margin);
   reader = _pred_class->get_reader();
-  rows = reader->read_rows(0, examples, pred_class);
+  reader->read_rows(0, examples, pred_class);
   reader = _pred_prob->get_reader();
-  rows = reader->read_rows(0, examples, pred_prob);
+  reader->read_rows(0, examples, pred_prob);
 
   // Check that the predictions made by the model are right!
   for(size_t i=0; i < examples; i++){
@@ -172,11 +170,11 @@ void run_logistic_regression_test(std::map<std::string, flexible_type> opts) {
   _pred_class = model->predict(data, "class");
   _pred_prob = model->predict(data, "probability");
   reader = _pred_margin->get_reader();
-  rows = reader->read_rows(0, examples, pred_margin);
+  reader->read_rows(0, examples, pred_margin);
   reader = _pred_class->get_reader();
-  rows = reader->read_rows(0, examples, pred_class);
+  reader->read_rows(0, examples, pred_class);
   reader = _pred_prob->get_reader();
-  rows = reader->read_rows(0, examples, pred_prob);
+  reader->read_rows(0, examples, pred_prob);
 
   // Check that the predictions made by the model are right!
   for(size_t i=0; i < examples; i++){

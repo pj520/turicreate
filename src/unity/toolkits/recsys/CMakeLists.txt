@@ -2,13 +2,13 @@ project(unity_toolkits)
 
 make_library(unity_recsys
   SOURCES
-    models/itemcf.cpp
-    unity_recsys.cpp
+    class_registrations.cpp
     recsys_model_base.cpp
     train_test_split.cpp
     user_item_lists.cpp
     user_item_graph.cpp
     models/popularity.cpp
+    models/itemcf.cpp
     models/factorization_models.cpp
   REQUIRES
     numerics
@@ -16,8 +16,12 @@ make_library(unity_recsys
     unity_ml_model
     unity_ml_data_2
     unity_util
-    unity_options
     unity_nearest_neighbors
     # unity_evaluation
+    unity_coreml_model_export
     unity_factorization
-    unity_core)
+    unity_core
+  COMPILE_FLAGS_EXTRA_GCC
+    -Wno-unknown-pragmas  # NOTE: used for auto-generated protobuf source files
+    -Wno-unused-function  # NOTE: used for auto-generated protobuf source files
+  )

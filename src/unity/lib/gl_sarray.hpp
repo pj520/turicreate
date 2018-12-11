@@ -13,6 +13,7 @@
 #include <sframe/sframe_rows.hpp>
 #include <sframe/group_aggregate_value.hpp>
 #include <flexible_type/flexible_type.hpp>
+#include <unity/lib/visualization/plot.hpp>
 
 namespace turi {
 /**************************************************************************/
@@ -237,6 +238,8 @@ class gl_sarray {
   gl_sarray(const std::vector<flexible_type>& values, 
             flex_type_enum dtype = flex_type_enum::UNDEFINED);
 
+  virtual ~gl_sarray(); 
+
   void construct_from_vector(const std::vector<flexible_type>& values,
             flex_type_enum dtype = flex_type_enum::UNDEFINED);
 
@@ -291,8 +294,15 @@ class gl_sarray {
    * \endcode
    */
   static gl_sarray from_sequence(size_t start, size_t end, bool reverse=false);
-
+  
   /**
+   * Constructs an SArray from a json record files.
+   *
+   * A json record file contains an array of dictionaries.
+   * Resultant SArray is of dictionary type.
+   */
+  static gl_sarray read_json(const std::string& url); 
+
   /**************************************************************************/
   /*                                                                        */
   /*                        Implicit Type Converters                        */
@@ -647,7 +657,7 @@ class gl_sarray {
    *
    *  \see is_materialized
    */
-  void materialize();
+  void materialize() const;
 
   /**
    * Returns whether or not the sarray has been materialized.
@@ -1018,7 +1028,7 @@ class gl_sarray {
    * [1,3,6,9]
    * \endcode
    */
-  gl_sarray sample(double fraction, size_t seed) const;
+  gl_sarray sample(double fraction, size_t seed, bool exact=false) const;
 
   /**
    * Return true if every element of the \ref gl_sarray evaluates to true. For
@@ -1712,7 +1722,7 @@ class gl_sarray {
    */
   gl_sarray subslice(flexible_type start = FLEX_UNDEFINED, 
                      flexible_type stop = FLEX_UNDEFINED, 
-                     flexible_type step = FLEX_UNDEFINED);
+                     flexible_type step = FLEX_UNDEFINED) const;
   
 /**
  *
@@ -1815,11 +1825,15 @@ class gl_sarray {
                                   ssize_t end,
                                   size_t min_observations=size_t(-1)) const;
 
-
   /**
    * Show a visualization of the SArray.
    */
-  void show(const std::string& path_to_client, const std::string& title, const std::string& xlabel, const std::string& ylabel) const;
+  void show(const std::string& path_to_client, const flexible_type& title, const flexible_type& xlabel, const flexible_type& ylabel) const;
+
+  /**
+   * Return a visualization of the SArray.
+   */
+  std::shared_ptr<visualization::Plot> plot(const flexible_type& title, const flexible_type& xlabel, const flexible_type& ylabel) const;
 
   /**
    * \internal

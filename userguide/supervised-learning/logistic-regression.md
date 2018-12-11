@@ -1,4 +1,4 @@
-#Logistic Regression
+# Logistic Regression
 
 Logistic regression is a regression model that is popularly used for
 classification tasks. In logistic regression, the probability that a  **binary
@@ -86,7 +86,7 @@ Refer to the chapter on linear regression for the following features:
 * [Sparse features](linear-regression.md#linregr-sparse-features)
 * [List features](linear-regression.md#linregr-list-features)
 * [Feature rescaling](linear-regression.md#linregr-feature-rescaling)
-* [Chosing the solver](linear-regression.md#linregr-solver)
+* [Choosing the solver](linear-regression.md#linregr-solver)
 * [Regularizing models](linear-regression.md#linregr-regularizer)
 
 We will now discuss some advanced features that are **specific to logistic
@@ -105,7 +105,7 @@ probability.
 
 ```python
 predictions = model.classify(test_data)
-print predictions
+print(predictions)
 ```
 ```no-highlight
 +-------+----------------+
@@ -167,8 +167,8 @@ tabulation of predicted and actual class labels.
 
 ```python
 result = model.evaluate(test_data)
-print "Accuracy         : %s" % result['accuracy']
-print "Confusion Matrix : \n%s" % result['confusion_matrix']
+print(Accuracy         : %s" % result['accuracy'])
+print("Confusion Matrix : \n%s" % result['confusion_matrix'])
 ```
 ```no-highlight
 Accuracy         : 0.860862092991
@@ -182,6 +182,39 @@ Confusion Matrix :
 |      1       |        1        | 34942 |
 +--------------+-----------------+-------+
 [4 rows x 3 columns]
+```
+
+Using basic SFrame operations, we can also isolate the examples in the
+test data where the model made mistakes:
+
+```python
+predictions = model.predict(test_data)
+
+# Compute a boolean SArray of whether or not the model was right
+mistakes_filter = predictions != test_data[model.target]
+correct_filter = predictions == test_data[model.target]
+
+# Apply the logical filter on the data
+mistakes = test_data[mistakes_filter]
+correct = test_data[correct_filter]
+```
+
+We can use the similar idea to isolate mistakes that are:
+- **false positives**: The model predicted true (for a class) but the
+  ground truth was false.
+- **false negative**: The model predicted false (for a class) but the
+  ground truth was true.
+
+
+```python
+predictions = model.predict(test_data)
+
+# Compute boolean filters
+false_positive_filter = (predictions == 1) & (test_data[model.target] == 0)
+false_negative_filter = (predictions == 0) & (test_data[model.target] == 1)
+
+false_negatives = test_data[false_negative_filter]
+false_positives = test_data[false_positive_filter]
 ```
 
 ######  <a name="logregr-imbalanced-data"></a> Working with imbalanced data
@@ -247,7 +280,7 @@ predictions, ordered by class probability, for each data point in the test set.
 
 ```python
 top = model.predict_topk(test_data, output_type='probability', k = 3)
-print top
+print(top)
 ```
 ```no-highlight
 Columns:

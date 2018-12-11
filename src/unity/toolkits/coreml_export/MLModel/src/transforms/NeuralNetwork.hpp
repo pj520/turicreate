@@ -7,22 +7,21 @@
 #define NeuralNetwork_hpp
 
 #include "../Model.hpp"
-#include "../Format.hpp"
 
 #include <unordered_set>
 #include <vector>
 
 namespace CoreML {
-    class EXPORT NeuralNetwork : public Model {
+    class NeuralNetwork : public Model {
     public:
         // This should only return the names of NN blobs which are to be outputs. This does not
         // require them to be dangling blobs.
         template<typename T>
-        static std::vector<std::string> outputNames(const Specification::Model& spec, const T& nn);
+        static std::vector<std::string> outputNames(const Specification::Model& spec, const T&);
     };
     
     template<typename T>
-    std::vector<std::string> NeuralNetwork::outputNames(const Specification::Model& spec, const T& nn) {
+    std::vector<std::string> NeuralNetwork::outputNames(const Specification::Model& spec, const T&) {
         // We won't do correctness checking here, that's for the validator.
         std::unordered_set<std::string> layerOutputs;
         for (const auto& output : spec.description().output()) {

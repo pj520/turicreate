@@ -34,7 +34,7 @@ namespace text {
 /**
  * List all the keys that are present in the state.
  */
-std::vector<std::string> topic_model::list_keys(){
+std::vector<std::string> topic_model::list_fields() {
   std::vector<std::string> ret;
   for (const auto& kvp: state){
     ret.push_back(kvp.first);
@@ -305,8 +305,6 @@ topic_model::count_matrix_type topic_model::predict_counts(std::shared_ptr<sarra
   arma::ivec topic_counts = arma::conv_to<arma::ivec>::from(arma::sum(topic_word_counts, 1));
   DASSERT_EQ(topic_counts.n_rows * topic_counts.n_cols, num_topics);
 
-  const size_t max_n_threads = thread::cpu_count();
-
   // Start iterating through documents in parallel
   in_parallel([&](size_t thread_idx, size_t n_threads) GL_GCC_ONLY(GL_HOT_FLATTEN) {
 
@@ -459,15 +457,6 @@ std::shared_ptr<sarray<flexible_type> > topic_model::predict_gibbs(
 
   predictions->close();
   return predictions;
-}
-
-
-/**
- * Clone to ml_base
- */
-ml_model_base* topic_model::ml_model_base_clone() {
-  topic_model* m = topic_model_clone();
-  return m;
 }
 
 

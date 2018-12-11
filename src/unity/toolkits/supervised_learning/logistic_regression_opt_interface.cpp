@@ -16,28 +16,17 @@
 // Solvers
 #include <optimization/utils.hpp>
 #include <optimization/newton_method-inl.hpp>
-#include <optimization/lbfgs-inl.hpp>
 #include <optimization/gradient_descent-inl.hpp>
 #include <optimization/accelerated_gradient-inl.hpp>
 
 // Regularizer
 #include <optimization/regularizers-inl.hpp>
 
-// Distributed
-#ifdef HAS_DISTRIBUTED
-#include <distributed/distributed_context.hpp>
-#include <rpc/dc_global.hpp>
-#include <rpc/dc.hpp>
-#endif
-
 // Utilities
 #include <numerics/armadillo.hpp>
 #include <cmath>
 #include <serialization/serialization_includes.hpp>
 
-
-
-constexpr size_t LOGISTIC_REGRESSION_BATCH_SIZE = 1000;
 
 namespace turi {
 namespace supervised {
@@ -78,7 +67,7 @@ void flattened_sparse_vector_outer_prod(const SparseVector& a,
 logistic_regression_opt_interface::logistic_regression_opt_interface(
     const ml_data& _data, 
     const ml_data& _valid_data, 
-    logistic_regression& _sp_model) {  
+    logistic_regression& _sp_model) {
 
   data = _data;
   if (_valid_data.num_rows() > 0) valid_data = _valid_data;
@@ -86,10 +75,6 @@ logistic_regression_opt_interface::logistic_regression_opt_interface(
 
   // Initialize reader and other data
   examples = data.num_rows();
-#ifdef HAS_DISTRIBUTED 
-  auto dc = distributed_control_global::get_instance();
-  dc->all_reduce(examples);
-#endif
   features = data.num_columns();
   n_threads = turi::thread_pool::get_instance().size();
 
@@ -97,7 +82,7 @@ logistic_regression_opt_interface::logistic_regression_opt_interface(
   auto ml_metadata = smodel.get_ml_metadata();
   classes = ml_metadata->target_index_size();
   variables = get_number_of_coefficients(ml_metadata);
-  is_dense = (variables <= 3 * features) ? true : false;
+  is_dense = (variables <= 3 * data.max_row_size()) ? true : false;
   variables *= (classes - 1);
 
 
@@ -164,6 +149,14 @@ size_t logistic_regression_opt_interface::num_examples() const{
 
 
 /**
+* Get the number of validation-set examples for the model
+*/
+size_t logistic_regression_opt_interface::num_validation_examples() const{
+  return valid_data.num_rows();
+}
+
+
+/**
 * Get the number of variables for the model
 */
 size_t logistic_regression_opt_interface::num_variables() const{
@@ -182,11 +175,38 @@ size_t logistic_regression_opt_interface::num_classes() const{
 /**
  * Get strings needed to print the header for the progress table.
  */
-std::vector<std::pair<std::string, size_t>> 
+std::vector<std::pair<std::string, size_t>>
 logistic_regression_opt_interface::get_status_header(const std::vector<std::string>& stat_headers) {
   bool has_validation_data = (valid_data.num_rows() > 0);
   auto header = make_progress_header(smodel, stat_headers, has_validation_data); 
   return header;
+}
+
+double logistic_regression_opt_interface::get_validation_accuracy() {
+  DASSERT_TRUE(valid_data.num_rows() > 0);
+
+  auto eval_results = smodel.evaluate(valid_data, "train");
+  auto results = eval_results.find("accuracy");
+  if(results == eval_results.end()) {
+    log_and_throw("No Validation Accuracy.");
+  }
+
+  variant_type variant_accuracy = results->second;
+  double accuracy = variant_get_value<flexible_type>(variant_accuracy).to<double>();
+  return accuracy;
+}
+
+double logistic_regression_opt_interface::get_training_accuracy() {
+  auto eval_results = smodel.evaluate(data, "train");
+  auto results = eval_results.find("accuracy");
+
+  if(results == eval_results.end()) {
+    log_and_throw("No Validation Accuracy.");
+  }
+  variant_type variant_accuracy = results->second;
+  double accuracy = variant_get_value<flexible_type>(variant_accuracy).to<double>();
+
+  return accuracy;
 }
 
 /**
@@ -201,15 +221,15 @@ std::vector<std::string> logistic_regression_opt_interface::get_status(
   smodel.set_coefs(coefs_tmp); 
 
   auto ret = make_progress_row_string(smodel, data, valid_data, stats);
-  return ret; 
+  return ret;
 }
 
 /**
  * Compute the first order statistics
 */
-void logistic_regression_opt_interface::compute_first_order_statistics(const
-    DenseVector& point, DenseVector& gradient, double& function_value, const
-    size_t mbStart, const size_t mbSize) {
+void logistic_regression_opt_interface::compute_first_order_statistics(
+    const ml_data& data, const DenseVector& point, DenseVector& gradient,
+    double& function_value, const size_t mbStart, const size_t mbSize) {
   DASSERT_TRUE(mbStart == 0);
   DASSERT_TRUE(mbSize == (size_t)(-1));
 
@@ -220,11 +240,6 @@ void logistic_regression_opt_interface::compute_first_order_statistics(const
   timer t;
   double start_time = t.current_time();
 
-#ifdef HAS_DISTRIBUTED
-  auto dc = distributed_control_global::get_instance();
-  DASSERT_TRUE(dc != NULL);
-  logstream(LOG_INFO) << "Worker (" << dc->procid() << ") ";
-#endif
   logstream(LOG_INFO) << "Starting first order stats computation" << std::endl; 
 
   // Dense data. 
@@ -237,15 +252,21 @@ void logistic_regression_opt_interface::compute_first_order_statistics(const
       pointMat.reshape(variables_per_class, classes-1);
       size_t class_idx = 0;
       double kernel_sum = 0;
-      for(auto it = data.get_iterator(thread_idx, num_threads); 
-                                                              !it.done(); ++it) {
+      for (auto it = data.get_iterator(thread_idx, num_threads); !it.done();
+           ++it) {
+        class_idx = it->target_index();
+
+        if(class_idx >= classes) {
+           continue;
+        }
+
         fill_reference_encoding(*it, x);
         x(variables_per_class - 1) = 1;
         if(feature_rescaling){
           scaler->transform(x);
         }
 
-        class_idx = it->target_index();
+
         margin = pointMat.t() * x;
         margin_dot_class = (class_idx > 0) ? margin(class_idx - 1) : 0;
    
@@ -273,13 +294,18 @@ void logistic_regression_opt_interface::compute_first_order_statistics(const
       double kernel_sum = 0;
       for(auto it = data.get_iterator(thread_idx, num_threads); 
                                                               !it.done(); ++it) {
+        class_idx = it->target_index();
+        
+        if(class_idx >= classes) {
+           continue;
+        }
+
         fill_reference_encoding(*it, x);
         x(variables_per_class - 1) = 1;
         if(feature_rescaling){
           scaler->transform(x);
         }
 
-        class_idx = it->target_index();
         margin = pointMatT * x;
         margin_dot_class = (class_idx > 0) ? margin(class_idx - 1) : 0;
    
@@ -307,36 +333,19 @@ void logistic_regression_opt_interface::compute_first_order_statistics(const
     function_value += f[i];
   }
 
-#ifdef HAS_DISTRIBUTED
-  logstream(LOG_INFO) << "Worker (" << dc->procid() << ") Computation done at " 
-                      << (t.current_time() - start_time) << "s" << std::endl; 
-
-  dc->all_reduce(gradient, true);
-  dc->all_reduce(function_value, true);
-
-  logstream(LOG_INFO) << "Worker (" << dc->procid() << ") All-reduce done at " 
-                      << (t.current_time() - start_time) << "s" << std::endl; 
-#else
   logstream(LOG_INFO) << "Computation done at " 
                       << (t.current_time() - start_time) << "s" << std::endl; 
-#endif
-
 }
 
 /**
  * Compute the second order statistics
 */
-void logistic_regression_opt_interface::compute_second_order_statistics( const
-    DenseVector& point, DenseMatrix& hessian, DenseVector& gradient, double&
-    function_value) {
+void logistic_regression_opt_interface::compute_second_order_statistics(
+    const DenseVector& point, DenseMatrix& hessian, DenseVector& gradient,
+    double& function_value) {
     
   timer t;
   double start_time = t.current_time();
-#ifdef HAS_DISTRIBUTED
-  auto dc = distributed_control_global::get_instance();
-  DASSERT_TRUE(dc != NULL);
-  logstream(LOG_INFO) << "Worker (" << dc->procid() << ") ";
-#endif
   logstream(LOG_INFO) << "Starting second order stats computation" << std::endl; 
 
   // Init  
@@ -462,21 +471,22 @@ void logistic_regression_opt_interface::compute_second_order_statistics( const
     function_value += f[i];
   }
 
-#ifdef HAS_DISTRIBUTED
-  logstream(LOG_INFO) << "Worker (" << dc->procid() << ") Computation done at " 
-                      << (t.current_time() - start_time) << "s" << std::endl; 
-
-  dc->all_reduce(hessian, true);
-  dc->all_reduce(gradient, true);
-  dc->all_reduce(function_value, true);
-
-  logstream(LOG_INFO) << "Worker (" << dc->procid() << ") All-reduce done at " 
-                      << (t.current_time() - start_time) << "s" << std::endl; 
-#else
   logstream(LOG_INFO) << "Computation done at " 
                       << (t.current_time() - start_time) << "s" << std::endl; 
-#endif
+}
 
+void logistic_regression_opt_interface::compute_first_order_statistics(const
+    DenseVector& point, DenseVector& gradient, double& function_value, const
+    size_t mbStart, const size_t mbSize) {
+  compute_first_order_statistics(
+      data, point, gradient, function_value, mbStart, mbSize);
+}
+
+void
+logistic_regression_opt_interface::compute_validation_first_order_statistics(
+    const DenseVector& point, DenseVector& gradient, double& function_value) {
+  compute_first_order_statistics(
+      valid_data, point, gradient, function_value);
 }
 
 

@@ -38,7 +38,6 @@ class Pipe {
              * of the real path of Pipe -> VegaContainer -> embedded WebKit view -> Vega
              * and of the vega rendering part.
              */
-            
             if let _ = ProcessInfo.processInfo.environment["TC_VISUALIZATION_CLIENT_USE_FAKE_INPUT"] {
                 process_data(data: Debugging.TableViewWithImage.spec)
                 process_data(data: Debugging.TableViewWithImage.data1)
@@ -59,12 +58,19 @@ class Pipe {
                 continue
             }
             
+            debug_log("Processing input: ")
+            debug_log(data)
             process_data(data: data);
         }
     }
     
     public func writePipe(method: String, start: Int, end: Int){
         print("{'method':'get_rows','start':" + String(start) + ", 'end': " + String(end) + "}");
+        fflush(__stdoutp)
+    }
+    
+    public func writeAccordion(method: String, column_name: String, index_val: String){
+        print("{'method':'get_accordion','column': '" + column_name + "', 'index': " + index_val + "}");
         fflush(__stdoutp)
     }
     
@@ -87,6 +93,10 @@ class Pipe {
             
             if let image_spec = json["image_spec"] as? [String: Any] {
                 self.graph_data.add_images(image_spec: image_spec)
+            }
+            
+            if let accordion_spec = json["accordion_spec"] as? [String: Any] {
+                self.graph_data.add_accordion(accordion_spec: accordion_spec)
             }
 
         } catch let error as NSError {

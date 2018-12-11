@@ -8,7 +8,7 @@ This module defines the SArray class which provides the
 ability to create, access and manipulate a remote scalable array object.
 
 SArray acts similarly to pandas.Series but without indexing.
-The data is immutable, homogeneous, and is stored on the Turi Server side.
+The data is immutable and homogeneous.
 '''
 from __future__ import print_function as _
 from __future__ import division as _
@@ -20,6 +20,7 @@ from ..cython.cy_flexible_type import infer_type_of_list, infer_type_of_sequence
 from ..cython.cy_sarray import UnitySArrayProxy
 from ..cython.context import debug_trace as cython_context
 from ..util import _is_non_string_iterable, _make_internal_url
+from ..visualization import Plot, LABEL_DEFAULT
 from .image import Image as _Image
 from .. import aggregate as _aggregate
 from ..deps import numpy, HAS_NUMPY
@@ -32,6 +33,7 @@ import collections
 import datetime
 import warnings
 import numbers
+import six
 
 __all__ = ['SArray']
 
@@ -50,6 +52,36 @@ def _create_sequential_sarray(size, start=0, reverse=False):
 
     with cython_context():
         return SArray(_proxy=glconnect.get_unity().create_sequential_sarray(size, start, reverse))
+
+def load_sarray(filename):
+    """
+    Load an SArray. The filename extension is used to determine the format
+    automatically. This function is particurly useful for SArrays previously
+    saved in binary format. If the SArray is in binary format, ``filename`` is
+    actually a directory, created when the SArray is saved.
+
+    Paramaters
+    ----------
+    filename : string
+        Location of the file to load. Can be a local path or a remote URL.
+
+    Returns
+    -------
+    out : SArray
+
+    See Also
+    --------
+    SArray.save
+
+    Examples
+    --------
+    >>> sa = turicreate.SArray(data=[1,2,3,4,5])
+    >>> sa.save('./my_sarray')
+    >>> sa_loaded = turicreate.load_sarray('./my_sarray')
+    """
+    sa = SArray(data=filename)
+    return sa
+
 
 class SArray(object):
     """
@@ -316,8 +348,11 @@ class SArray(object):
 
         if (_proxy):
             self.__proxy__ = _proxy
-        elif type(data) == SArray:
-            self.__proxy__ = data.__proxy__
+        elif isinstance(data, SArray):
+            if dtype is None:
+                self.__proxy__ = data.__proxy__
+            else:
+                self.__proxy__ = data.astype(dtype).__proxy__
         else:
             self.__proxy__ = UnitySArrayProxy()
             # we need to perform type inference
@@ -528,7 +563,7 @@ class SArray(object):
     @classmethod
     def read_json(cls, filename):
         """
-        Construct an SArray from a json file or glob of json files. 
+        Construct an SArray from a json file or glob of json files.
         The json file must contain a list of dictionaries. The returned
         SArray type will be of dict type
 
@@ -555,13 +590,13 @@ class SArray(object):
     @classmethod
     def where(cls, condition, istrue, isfalse, dtype=None):
         """
-        Selects elements from either istrue or isfalse depending on the value 
+        Selects elements from either istrue or isfalse depending on the value
         of the condition SArray.
 
         Parameters
         ----------
         condition : SArray
-        An SArray of values such that for each value, if non-zero, yields a 
+        An SArray of values such that for each value, if non-zero, yields a
         value from istrue, otherwise from isfalse.
 
         istrue : SArray or constant
@@ -578,8 +613,8 @@ class SArray(object):
 
         Examples
         --------
-        
-        Returns an SArray with the same values as g with values above 10 
+
+        Returns an SArray with the same values as g with values above 10
         clipped to 10
 
         >>> g = SArray([6,7,8,9,10,11,12,13])
@@ -588,7 +623,7 @@ class SArray(object):
         Rows: 8
         [6, 7, 8, 9, 10, 10, 10, 10]
 
-        Returns an SArray with the same values as g with values below 10 
+        Returns an SArray with the same values as g with values below 10
         clipped to 10
 
         >>> SArray.where(g > 10, g, 10)
@@ -732,7 +767,7 @@ class SArray(object):
                 headln = unicode(headln.decode('string_escape'),'utf-8',errors='replace').encode('utf-8')
             else:
                 headln = str(list(self.head(100)))
-        if (self.__proxy__.has_size() == False or len(self) > 100):
+        if (self.__proxy__.has_size() is False or len(self) > 100):
             # cut the last close bracket
             # and replace it with ...
             headln = headln[0:-1] + ", ... ]"
@@ -797,7 +832,7 @@ class SArray(object):
     def shape(self):
         """
         The shape of the SArray, in a tuple. The first entry is the number of
-        rows. 
+        rows.
 
         Examples
         --------
@@ -814,7 +849,7 @@ class SArray(object):
         Conceptually equivalent to:
 
         >>> sa.apply(lambda x: item in x)
-        
+
         If the current SArray contains strings and item is a string. Produces a 1
         for each row if 'item' is a substring of the row and 0 otherwise.
 
@@ -832,7 +867,7 @@ class SArray(object):
         Returns
         -------
         out : SArray
-            A binary SArray where a non-zero value denotes that the item 
+            A binary SArray where a non-zero value denotes that the item
             was found in the row. And 0 if it is not found.
 
         Examples
@@ -852,7 +887,7 @@ class SArray(object):
 
         See Also
         --------
-        is_in 
+        is_in
         """
         return SArray(_proxy = self.__proxy__.left_scalar_operator(item, 'in'))
 
@@ -864,7 +899,7 @@ class SArray(object):
         Conceptually equivalent to:
 
         >>> sa.apply(lambda x: x in other)
-        
+
         If the current SArray contains strings and other is a string. Produces a 1
         for each row if the row is a substring of 'other', and 0 otherwise.
 
@@ -1220,6 +1255,8 @@ class SArray(object):
 
             # Not in cache, need to grab it
             block_size = 1024 * (32 if self.dtype in [int, long, float] else 4)
+            if self.dtype in [numpy.ndarray, _Image, dict, list]:
+                block_size = 16
 
             block_num = int(other // block_size)
 
@@ -1924,17 +1961,23 @@ class SArray(object):
             return SArray(_proxy=self.__proxy__.filter(fn, skip_na, seed))
 
 
-    def sample(self, fraction, seed=None):
+    def sample(self, fraction, seed=None, exact=False):
         """
         Create an SArray which contains a subsample of the current SArray.
 
         Parameters
         ----------
         fraction : float
-            The fraction of the rows to fetch. Must be between 0 and 1.
+            Fraction of the rows to fetch. Must be between 0 and 1.
+            if exact is False (default), the number of rows returned is
+            approximately the fraction times the number of rows.
 
-        seed : int
+        seed : int, optional
             The random seed for the random number generator.
+
+        exact: bool, optional
+            Defaults to False. If exact=True, an exact fraction is returned, 
+            but at a performance penalty.
 
         Returns
         -------
@@ -1958,7 +2001,7 @@ class SArray(object):
 
 
         with cython_context():
-            return SArray(_proxy=self.__proxy__.sample(fraction, seed))
+            return SArray(_proxy=self.__proxy__.sample(fraction, seed, exact))
 
     def hash(self, seed=0):
         """
@@ -1969,7 +2012,7 @@ class SArray(object):
         Parameters
         ----------
         seed : int
-            Defaults to 0. Can be changed to different values to get 
+            Defaults to 0. Can be changed to different values to get
             different hash results.
 
         Returns
@@ -2479,7 +2522,6 @@ class SArray(object):
         [{1: 2, 3: 4}, {'a': 'b', 'c': 'd'}]
         """
 
-
         if (dtype == _Image) and (self.dtype == array.array):
             raise TypeError("Cannot cast from image type to array with sarray.astype(). Please use sarray.pixel_array_to_img() instead.")
 
@@ -2730,6 +2772,43 @@ class SArray(object):
 
         return Sketch(self, background, sub_sketch_keys = sub_sketch_keys)
 
+    def value_counts(self):
+        """
+        Return an SFrame containing counts of unique values. The resulting
+        SFrame will be sorted in descending frequency.
+
+        Returns
+        -------
+        out : SFrame
+            An SFrame containing 2 columns : 'value', and 'count'. The SFrame will
+            be sorted in descending order by the column 'count'.
+
+        See Also
+        --------
+        SFrame.summary
+
+        Examples
+        --------
+        >>> sa = turicreate.SArray([1,1,2,2,2,2,3,3,3,3,3,3,3])
+        >>> sa.value_counts()
+            Columns:
+                    value	int
+                    count	int
+            Rows: 3
+            Data:
+            +-------+-------+
+            | value | count |
+            +-------+-------+
+            |   3   |   7   |
+            |   2   |   4   |
+            |   1   |   2   |
+            +-------+-------+
+            [3 rows x 2 columns]
+        """
+        from .sframe import SFrame as _SFrame
+        return _SFrame({'value':self}).groupby('value', {'count':_aggregate.COUNT}).sort('count', ascending=False)
+
+
     def append(self, other):
         """
         Append an SArray to the current SArray. Creates a new SArray with the
@@ -2821,23 +2900,29 @@ class SArray(object):
         from .sframe import SFrame as _SFrame
         _SFrame({'SArray': self}).explore()
 
-    def show(self, title=None, xlabel=None, ylabel=None):
+    def show(self, title=LABEL_DEFAULT, xlabel=LABEL_DEFAULT, ylabel=LABEL_DEFAULT):
         """
         Visualize the SArray.
+
+        Notes
+        -----
+        - The plot will render either inline in a Jupyter Notebook, or in a
+          native GUI window, depending on the value provided in
+          `turicreate.visualization.set_target` (defaults to 'auto').
 
         Parameters
         ----------
         title : str
-            The plot title to show for the resulting visualization. Defaults to None.
-            If the title is None, a default title will be provided.
+            The plot title to show for the resulting visualization.
+            If the title is None, the title will be omitted.
 
         xlabel : str
-            The X axis label to show for the resulting visualization. Defaults to None.
-            If the xlabel is None, a default X axis label will be provided.
+            The X axis label to show for the resulting visualization.
+            If the xlabel is None, the X axis label will be omitted.
 
         ylabel : str
-            The Y axis label to show for the resulting visualization. Defaults to None.
-            If the ylabel is None, a default Y axis label will be provided.
+            The Y axis label to show for the resulting visualization.
+            If the ylabel is None, the Y axis label will be omitted.
 
         Returns
         -------
@@ -2853,20 +2938,70 @@ class SArray(object):
 
         >>> sa.show(title="My Plot Title", xlabel="My X Axis", ylabel="My Y Axis")
         """
-        import sys
-        if sys.platform != 'darwin':
-            raise NotImplementedError('Visualization is currently supported only on macOS.')
 
-        import os
-        (tcviz_dir, _) = os.path.split(os.path.dirname(__file__))
-        path_to_client = os.path.join(tcviz_dir, 'Turi Create Visualization.app', 'Contents', 'MacOS', 'Turi Create Visualization')
+        returned_plot = self.plot(title, xlabel, ylabel)
+
+        returned_plot.show()
+
+    def plot(self, title=LABEL_DEFAULT, xlabel=LABEL_DEFAULT, ylabel=LABEL_DEFAULT):
+        """
+        Create a Plot object representing the SArray.
+
+        Notes
+        -----
+        - The plot will render either inline in a Jupyter Notebook, or in a
+          native GUI window, depending on the value provided in
+          `turicreate.visualization.set_target` (defaults to 'auto').
+
+        Parameters
+        ----------
+        title : str
+            The plot title to show for the resulting visualization.
+            If the title is None, the title will be omitted.
+
+        xlabel : str
+            The X axis label to show for the resulting visualization.
+            If the xlabel is None, the X axis label will be omitted.
+
+        ylabel : str
+            The Y axis label to show for the resulting visualization.
+            If the ylabel is None, the Y axis label will be omitted.
+
+        Returns
+        -------
+        out : Plot
+        A :class: Plot object that is the visualization of the SArray.
+
+        Examples
+        --------
+        Suppose 'sa' is an SArray, we can create a plot of it using:
+
+        >>> plt = sa.plot()
+
+        To override the default plot title and axis labels:
+
+        >>> plt = sa.plot(title="My Plot Title", xlabel="My X Axis", ylabel="My Y Axis")
+
+        We can then visualize the plot using:
+
+        >>> plt.show()
+        """
+
+        if title == "":
+            title = " "
+        if xlabel == "":
+            xlabel = " "
+        if ylabel == "":
+            ylabel = " "
+
         if title is None:
             title = "" # C++ otherwise gets "None" as std::string
         if xlabel is None:
             xlabel = ""
         if ylabel is None:
             ylabel = ""
-        self.__proxy__.show(path_to_client, title, xlabel, ylabel)
+
+        return Plot(self.__proxy__.plot(title, xlabel, ylabel))
 
     def item_length(self):
         """
@@ -3044,6 +3179,8 @@ class SArray(object):
 
         if column_name_prefix is None:
             column_name_prefix = ""
+        if six.PY2 and type(column_name_prefix) == unicode:
+            column_name_prefix = column_name_prefix.encode('utf-8')
         if type(column_name_prefix) != str:
             raise TypeError("'column_name_prefix' must be a string")
 
@@ -3076,6 +3213,83 @@ class SArray(object):
 
         with cython_context():
            return _SFrame(_proxy=self.__proxy__.expand(column_name_prefix, limit, column_types))
+
+    def stack(self, new_column_name=None, drop_na=False, new_column_type=None):
+        """
+        Convert a "wide" SArray to one or two "tall" columns in an SFrame by
+        stacking all values.
+
+        The stack works only for columns of dict, list, or array type.  If the
+        column is dict type, two new columns are created as a result of
+        stacking: one column holds the key and another column holds the value.
+        The rest of the columns are repeated for each key/value pair.
+
+        If the column is array or list type, one new column is created as a
+        result of stacking. With each row holds one element of the array or list
+        value, and the rest columns from the same original row repeated.
+
+        The returned SFrame includes the newly created column(s).
+
+        Parameters
+        --------------
+        new_column_name : str | list of str, optional
+            The new column name(s). If original column is list/array type,
+            new_column_name must a string. If original column is dict type,
+            new_column_name must be a list of two strings. If not given, column
+            names are generated automatically.
+
+        drop_na : boolean, optional
+            If True, missing values and empty list/array/dict are all dropped
+            from the resulting column(s). If False, missing values are
+            maintained in stacked column(s).
+
+        new_column_type : type | list of types, optional
+            The new column types. If original column is a list/array type
+            new_column_type must be a single type, or a list of one type. If
+            original column is of dict type, new_column_type must be a list of
+            two types. If not provided, the types are automatically inferred
+            from the first 100 values of the SFrame.
+
+        Returns
+        -------
+        out : SFrame
+            A new SFrame that contains the newly stacked column(s).
+
+        Examples
+        ---------
+        Suppose 'sa' is an SArray of dict type:
+
+        >>> sa = turicreate.SArray([{'a':3, 'cat':2},
+        ...                         {'a':1, 'the':2},
+        ...                         {'the':1, 'dog':3},
+        ...                         {}])
+        [{'a': 3, 'cat': 2}, {'a': 1, 'the': 2}, {'the': 1, 'dog': 3}, {}]
+
+        Stack would stack all keys in one column and all values in another
+        column:
+
+        >>> sa.stack(new_column_name=['word', 'count'])
+        +------+-------+
+        | word | count |
+        +------+-------+
+        |  a   |   3   |
+        | cat  |   2   |
+        |  a   |   1   |
+        | the  |   2   |
+        | the  |   1   |
+        | dog  |   3   |
+        | None |  None |
+        +------+-------+
+        [7 rows x 2 columns]
+
+        Observe that since topic 4 had no words, an empty row is inserted.
+        To drop that row, set drop_na=True in the parameters to stack.
+        """
+        from .sframe import SFrame as _SFrame
+        return _SFrame({'SArray': self}).stack('SArray',
+                                               new_column_name=new_column_name,
+                                               drop_na=drop_na,
+                                               new_column_type=new_column_type)
 
     def unpack(self, column_name_prefix = "X", column_types=None, na_value=None, limit=None):
         """
@@ -3210,7 +3424,7 @@ class SArray(object):
 
         if column_name_prefix is None:
             column_name_prefix = ""
-        if type(column_name_prefix) != str:
+        if not(isinstance(column_name_prefix, six.string_types)):
             raise TypeError("'column_name_prefix' must be a string")
 
         # validate 'limit'
@@ -3272,9 +3486,9 @@ class SArray(object):
         with cython_context():
             if (self.dtype == dict and column_types is None):
                 limit = limit if limit is not None else []
-                return _SFrame(_proxy=self.__proxy__.unpack_dict(column_name_prefix.encode(), limit, na_value))
+                return _SFrame(_proxy=self.__proxy__.unpack_dict(column_name_prefix.encode('utf-8'), limit, na_value))
             else:
-                return _SFrame(_proxy=self.__proxy__.unpack(column_name_prefix.encode(), limit, column_types, na_value))
+                return _SFrame(_proxy=self.__proxy__.unpack(column_name_prefix.encode('utf-8'), limit, column_types, na_value))
 
     def sort(self, ascending=True):
         """
@@ -4182,6 +4396,86 @@ class SArray(object):
         from .. import extensions
         agg_op = "__builtin__cum_var__"
         return SArray(_proxy = self.__proxy__.builtin_cumulative_aggregate(agg_op))
+
+    def filter_by(self, values, exclude=False):
+        
+        """
+        Filter an SArray by values inside an iterable object. The result is an SArray that
+        only includes (or excludes) the values in the given ``values`` :class:`~turicreate.SArray`.
+        If ``values`` is not an SArray, we attempt to convert it to one before filtering.
+        
+        Parameters
+        ----------
+        values : SArray | list | numpy.ndarray | pandas.Series | str
+        The values to use to filter the SArray. The resulting SArray will
+        only include rows that have one of these values in the given
+        column.
+        
+        exclude : bool
+        If True, the result SArray will contain all rows EXCEPT those that
+        have one of the ``values``.
+        
+        Returns
+        -------
+        out : SArray
+        The filtered SArray.
+        
+        Examples
+        --------
+        >>> sa = SArray(['dog', 'cat', 'cow', 'horse'])
+        >>> sa.filter_by(['cat', 'hamster', 'dog', 'fish', 'bird', 'snake'])
+        dtype: str
+        Rows: 2
+        ['dog', 'cat']
+        
+        >>> sa.filter_by(['cat', 'hamster', 'dog', 'fish', 'bird', 'snake'], exclude=True)
+        dtype: str
+        Rows: 2
+        ['horse', 'cow']
+        """
+    
+        from .sframe import SFrame as _SFrame
+        
+        column_name = 'sarray'
+        
+        # Convert values to SArray
+        if not isinstance(values, SArray): #type(values) is not SArray:
+            # If we were given a single element, try to put in list and convert
+            # to SArray
+            if not _is_non_string_iterable(values):
+                values = [values]
+            values = SArray(values)
+    
+        # Convert values to SFrame
+        value_sf = _SFrame()
+        value_sf.add_column(values, column_name, inplace=True)
+        given_type = value_sf.column_types()[0] #value column type
+        
+        existing_type = self.dtype
+        sarray_sf = _SFrame()
+        sarray_sf.add_column(self, column_name, inplace=True)
+        
+        if given_type != existing_type:
+            raise TypeError("Type of given values does not match type of the SArray")
+        
+        # Make sure the values list has unique values, or else join will not
+        # filter.
+        value_sf = value_sf.groupby(column_name, {})
+        
+        with cython_context():
+            if exclude:
+                id_name = "id"
+                value_sf = value_sf.add_row_number(id_name)
+                tmp = _SFrame(_proxy=sarray_sf.__proxy__.join(value_sf.__proxy__,
+                                                        'left',
+                                                        {column_name:column_name}))
+                ret_sf = tmp[tmp[id_name] == None]
+                return ret_sf[column_name]
+            else:
+                ret_sf = _SFrame(_proxy=sarray_sf.__proxy__.join(value_sf.__proxy__,
+                                                             'inner',
+                                                             {column_name:column_name}))
+                return ret_sf[column_name]
 
     def __copy__(self):
         """

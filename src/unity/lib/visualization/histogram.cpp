@@ -4,10 +4,11 @@
  * be found in the LICENSE.txt file or at https://opensource.org/licenses/BSD-3-Clause
  */
 #include "histogram.hpp"
-#include "vega_spec.hpp"
 
 #include <parallel/lambda_omp.hpp>
+#include <unity/lib/visualization/escape.hpp>
 
+#include <string>
 #include <cmath>
 
 namespace turi {
@@ -138,7 +139,7 @@ histogram_bins histogram_result::get_bins(flex_int num_bins) const {
   // this assertion).
   //DASSERT_GE(effective_bins, (MAX_BINS/4));
 
-  if (num_bins > (MAX_BINS/4)) {
+  if (static_cast<size_t>(num_bins) > (MAX_BINS/4)) {
     log_and_throw("num_bins must be less than or equal to the effective number of bins available.");
   }
 
@@ -158,10 +159,10 @@ histogram_bins histogram_result::get_bins(flex_int num_bins) const {
   ret.bins = flex_list(num_bins, 0); // initialize empty
   ret.min = get_value_at_bin(std::max<ssize_t>(0, first_bin - before), scale_min, scale_max, MAX_BINS);
   ret.max = get_value_at_bin(std::min<ssize_t>(last_bin + after + 1, MAX_BINS), scale_min, scale_max, MAX_BINS);
-  for (size_t i=0; i<num_bins; i++) {
+  for (size_t i=0; i<static_cast<size_t>(num_bins); i++) {
     for (size_t j=0; j<bins_per_bin; j++) {
       ssize_t idx = (i * bins_per_bin) + j + (first_bin - before);
-      if (idx < 0 || idx >= MAX_BINS) {
+      if (idx < 0 || static_cast<size_t>(idx) >= MAX_BINS) {
         // don't try to get values below 0, or past MAX_BINS, that would be silly
         continue;
       }
@@ -188,8 +189,15 @@ void histogram_result::add_element_simple(const flexible_type& value) {
    * add element to histogram
    */
 
-  // ignore undefined values
+
   if (value.get_type() == flex_type_enum::UNDEFINED) {
+    return;
+  }
+
+  // ignore nan values
+  // ignore inf values
+  if (value.get_type() == flex_type_enum::FLOAT &&
+      !std::isfinite(value.get<flex_float>())) {
     return;
   }
 
@@ -199,12 +207,6 @@ void histogram_result::add_element_simple(const flexible_type& value) {
 
   // resize bins if needed
   this->rescale(this->min, this->max);
-
-  // ignore nan values
-  if (value.get_type() == flex_type_enum::FLOAT &&
-      std::isnan(value.get<flex_float>())) {
-    return;
-  }
 
   // update count in bin
   size_t bin = get_bin_idx(value, this->scale_min, this->scale_max);
@@ -222,13 +224,16 @@ void histogram::init(const gl_sarray& source) {
   size_t input_size = m_source.size();
   if (input_size >= 2 &&
       m_source[0].get_type() != flex_type_enum::UNDEFINED &&
-      m_source[1].get_type() != flex_type_enum::UNDEFINED) {
+      m_source[1].get_type() != flex_type_enum::UNDEFINED &&
+      std::isfinite(m_source[0].to<flex_float>()) &&
+      std::isfinite(m_source[1].to<flex_float>())) {
     // start with a sane range for the bins (somewhere near the data)
     // (it can be exceptionally small, since the doubling used in resize()
     // will make it converge to the real range quickly)
     m_transformer->init(dtype, m_source[0], m_source[1]);
   } else if (input_size == 1 &&
-             m_source[0].get_type() != flex_type_enum::UNDEFINED) {
+             m_source[0].get_type() != flex_type_enum::UNDEFINED &&
+             std::isfinite(m_source[0].to<flex_float>())) {
     // one value, not so interesting
     m_transformer->init(dtype, m_source[0], m_source[0]);
   } else {
@@ -305,20 +310,6 @@ std::string histogram_result::vega_column_data(bool) const {
   return ss.str();
 }
 
-static std::string escape_float(flex_float value) {
-  if (std::isnan(value)) {
-    return "\"nan\"";
-  }
-  if (std::isinf(value)) {
-    if (value > 0) {
-      return "\"inf\"";
-    } else {
-      return "\"-inf\"";
-    }
-  }
-  return std::to_string(value);
-}
-
 std::string histogram_result::vega_summary_data() const {
   std::stringstream ss;
 
@@ -342,5 +333,32 @@ std::string histogram_result::vega_summary_data() const {
   return ss.str();
 
 }
+
+std::shared_ptr<Plot> plot_histogram(
+  const gl_sarray& sa, const flexible_type& xlabel, const flexible_type& ylabel,
+  const flexible_type& title) {
+    using namespace turi;
+    using namespace turi::visualization;
+
+    logprogress_stream << "Materializing SArray" << std::endl;
+    sa.materialize();
+
+    if (sa.size() == 0) {
+      log_and_throw("Nothing to show; SArray is empty.");
+    }
+
+    std::shared_ptr<const gl_sarray> self = std::make_shared<const gl_sarray>(sa);
+
+    histogram hist;
+
+    std::string spec = histogram_spec(title, xlabel, ylabel, self->dtype());
+    double size_array = static_cast<double>(self->size());
+
+    hist.init(*self);
+
+    std::shared_ptr<transformation_base> shared_unity_transformer = std::make_shared<histogram>(hist);
+    return std::make_shared<Plot>(spec, shared_unity_transformer, size_array);
+}
+
 
 }}

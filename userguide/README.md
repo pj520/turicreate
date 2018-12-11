@@ -23,7 +23,7 @@ If you haven’t already installed Turi Create, you can find instructions
 ## SFrame
 
 SFrame is a scalable, tabular, column-mutable dataframe object. The data
-in SFrame is stored column-wise on the Turi Server side, and is stored
+in SFrame is stored column-wise, and is stored
 on persistent storage (e.g. disk) to avoid being constrained by memory
 size. Each column in an SFrame is a size-immutable SArray, but SFrames
 are mutable in that columns can be added and subtracted with ease. An
@@ -35,10 +35,10 @@ directory where an Sframe was saved previously), general text file (with
 csv parsing options; see read_csv()), Python dictionary,
 pandas.DataFrame and JSON.
 
-An SFrame can be constructed with data from your local file system, the
-Turi server’s file system, HDFS, Amazon S3, or HTTP(S).
+An SFrame can be constructed with data from your local file system, a
+network file system mounted locally, HDFS, Amazon S3, or HTTP(S).
 
-See [Working with data](sframe/introduction.md) for more guidance on
+See [Working with data](sframe/README.md) for more guidance on
 data structures and the [API
 docs](https://apple.github.io/turicreate/docs/api/turicreate.data_structures.html)
 for a more complete reference.
@@ -57,12 +57,13 @@ later. Each incorporates automatic feature engineering and model
 selection.
 
 Using these toolkits, you can tackle a number of common scenarios:
-* [Recommender systems](recommender/introduction.md)
-* [Image classification](image_classifier/introduction.md)
-* [Image similarity](image_similarity/introduction.md)
-* [Object detection](object_detection/introduction.md)
-* [Activity classifier](activity_classifier/introduction.md)
-* [Text classifier](text_classifier/introduction.md)
+* [Recommender systems](recommender/README.md)
+* [Image classification](image_classifier/README.md)
+* [Image similarity](image_similarity/README.md)
+* [Object detection](object_detection/README.md)
+* [Style transfer](style_transfer/README.md)
+* [Activity classifier](activity_classifier/README.md)
+* [Text classifier](text_classifier/README.md)
 
 ### Machine learning essentials
 
@@ -71,10 +72,10 @@ toolkits:
 
 * [Classifiers](supervised-learning/classifier.md)
 * [Regression](supervised-learning/regression.md)
-* [Graph analytics](graph_analytics/intro.md)
-* [Clustering](clustering/intro.md)
+* [Graph analytics](graph_analytics/README.md)
+* [Clustering](clustering/README.md)
 * [Nearest Neighbors](nearest_neighbors/nearest_neighbors.md)
-* [Topic models](text/intro.md)
+* [Topic models](text/README.md)
 
 Refer to the [Machine Learning API
 documentation](https://apple.github.io/turicreate/docs/api/turicreate.toolkits.html)

@@ -341,10 +341,10 @@ std::string translate_solver_status(const OPTIMIZATION_STATUS& status){
         ret = "SUCCESS: Optimal solution found.";
         break;
      case OPTIMIZATION_STATUS::OPT_ITERATION_LIMIT:
-        ret = "TERMINATED: Iteration limit reached.";
+        ret = "Completed (Iteration limit reached).";
         break;
      case OPTIMIZATION_STATUS::OPT_TIME_LIMIT:
-	      ret = "TERMINATED: Time limit reached.";
+	      ret = "Completed (Time limit reached).";
         break;
      case OPTIMIZATION_STATUS::OPT_INTERRUPTED:
  	      ret = "TERMINATED: Terminated by user.";
@@ -357,6 +357,9 @@ std::string translate_solver_status(const OPTIMIZATION_STATUS& status){
         break;
      case OPTIMIZATION_STATUS::OPT_LS_FAILURE:
         ret = "TERMINATED: Terminated due to numerical difficulties in line search.";
+        break;
+     case OPTIMIZATION_STATUS::OPT_IN_PROGRESS:
+        ret = "IN PROGRESS: Optimization is still in progress.";
         break;
   }
 
@@ -375,6 +378,7 @@ std::string get_recourse_actions(const OPTIMIZATION_STATUS& status){
      case OPTIMIZATION_STATUS::OPT_UNSET:
      case OPTIMIZATION_STATUS::OPT_OPTIMAL:
      case OPTIMIZATION_STATUS::OPT_INTERRUPTED:
+     case OPTIMIZATION_STATUS::OPT_IN_PROGRESS:
         ret = "";
         break;
      case OPTIMIZATION_STATUS::OPT_LOADED:
@@ -401,7 +405,7 @@ std::string get_recourse_actions(const OPTIMIZATION_STATUS& status){
 /**
  * Pretty print solver traiing stats.
 */
-void log_solver_summary_stats(const solver_return& stats){
+void log_solver_summary_stats(const solver_return& stats, bool simple_mode){
 
     // Don't you love flexible type :)
     flexible_type residual;
@@ -426,7 +430,9 @@ void log_solver_summary_stats(const solver_return& stats){
 
     // Print the status to the user.
     logprogress_stream <<  translate_solver_status(stats.status) << std::endl;
+    if(!simple_mode) {
     logprogress_stream <<  get_recourse_actions(stats.status) << std::endl;
+    }
 
 }
 

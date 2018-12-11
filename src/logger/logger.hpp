@@ -49,6 +49,7 @@
 #include <timer/timer.hpp>
 #include <logger/fail_method.hpp>
 #include <logger/backtrace.hpp>
+#include <logger/error.hpp>
 #include <util/code_optimization.hpp> 
 #include <process/process_util.hpp>
 
@@ -331,12 +332,21 @@
     throw_error();                                                  \
   } while(0)                                                 
 
+#define std_log_and_throw(key_type, message)          \
+  do {                                                \
+    auto throw_error = [&]() GL_COLD_NOINLINE_ERROR { \
+      logstream(LOG_ERROR) << (message) << std::endl; \
+      throw(key_type(message));                       \
+    };                                                \
+    throw_error();                                    \
+  } while (0)
+
 #ifdef COMPILER_HAS_IOS_BASE_FAILURE_WITH_ERROR_CODE
 #define log_and_throw_io_failure(message)                             \
   do {                                                                \
     auto throw_error = [&]() GL_COLD_NOINLINE_ERROR {    \
       logstream(LOG_ERROR) << (message) << std::endl;                 \
-      throw(std::ios_base::failure(message, std::error_code()));      \
+      throw(turi::error::io_error(message, std::error_code()));      \
     };                                                                \
     throw_error();                                                    \
   } while(0)
@@ -345,11 +355,19 @@
   do {                                                                \
     auto throw_error = [&]() GL_COLD_NOINLINE_ERROR {    \
       logstream(LOG_ERROR) << (message) << std::endl;                 \
-      throw(std::ios_base::failure(message));                         \
+      throw(turi::error::io_error(message));                         \
     };                                                                \
     throw_error();                                                    \
   } while(0)
 #endif
+
+#define log_and_throw_current_io_failure()                            \
+  do {                                                                \
+    auto error_code = errno;                                          \
+    std::string error_message = std::strerror(error_code);            \
+    errno = 0; /* clear errno */                                      \
+    log_and_throw_io_failure(error_message);                          \
+  } while(0)
 
 #define log_func_entry()                                       \
   do {                                                         \
@@ -480,7 +498,9 @@ class file_logger{
       std::stringstream& streambuffer = streambufentry->streambuffer;
       bool& streamactive = streambufentry->streamactive;
 
-      if (streamactive) streambuffer << a;
+      if (streamactive) {
+        streambuffer << a;
+      }
     }
     return *this;
   }
@@ -518,15 +538,18 @@ class file_logger{
       std::stringstream& streambuffer = streambufentry->streambuffer;
       bool& streamactive = streambufentry->streamactive;
 
-      typedef std::ostream& (*endltype)(std::ostream&);
       if (streamactive) {
-        if (endltype(f) == endltype(std::endl)) {
-          streambuffer << "\n";
-          stream_flush();
-          if(streamloglevel == LOG_FATAL) {
-            __print_back_trace();
-            TURI_LOGGER_FAIL_METHOD("LOG_FATAL encountered");
-          }
+        // TODO: previously, we had a check for if (endltype(f) == endltype(std::endl))
+        // and only flushed the stream on endl (ignoring all other stream modifiers).
+        // On recent clang compilers, this check seems to always return false in debug.
+        // (tested with Apple LLVM version 10.0.0 (clang-1000.11.45.5))
+        // As a workaround, let's just flush the stream on all modifiers.
+        // In practice they're usually endl anyway, so the perf hit should not be too bad.
+        streambuffer << f;
+        stream_flush();
+        if(streamloglevel == LOG_FATAL) {
+          __print_back_trace();
+          TURI_LOGGER_FAIL_METHOD("LOG_FATAL encountered");
         }
       }
     }

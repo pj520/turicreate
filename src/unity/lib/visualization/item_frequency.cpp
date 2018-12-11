@@ -5,6 +5,7 @@
  */
 #include "item_frequency.hpp"
 #include "vega_spec.hpp"
+#include <string>
 
 using namespace turi::visualization;
 
@@ -70,7 +71,19 @@ std::string item_frequency_result::vega_column_data(bool sframe) const {
   }
 
   std::sort(items_list.begin(), items_list.end(), [](const std::pair<turi::flexible_type,flexible_type> &left, const std::pair<turi::flexible_type,flexible_type> &right) {
+    DASSERT_EQ(left.second.get_type(), flex_type_enum::INTEGER);
+    DASSERT_EQ(right.second.get_type(), flex_type_enum::INTEGER);
+
     if (left.second == right.second) {
+      // ignore undefined (always sort lower -- it'll get ignored later)
+      if (left.first.get_type() == flex_type_enum::UNDEFINED ||
+          right.first.get_type() == flex_type_enum::UNDEFINED) {
+        return false;
+      }
+
+      DASSERT_EQ(left.first.get_type(), flex_type_enum::STRING);
+      DASSERT_EQ(right.first.get_type(), flex_type_enum::STRING);
+
       // if count is equal, sort ascending by label
       return right.first > left.first;
     }
@@ -87,25 +100,71 @@ std::string item_frequency_result::vega_column_data(bool sframe) const {
       continue;
     }
 
+    if(x != 0){
+      ss << ",";
+    }
+
     DASSERT_TRUE(flex_value.get_type() == flex_type_enum::STRING);
     const auto& value = flex_value.get<flex_string>();
 
     size_t count = pair.second.get<flex_int>();
 
     ss << "{\"label\": ";
-    ss << escape_string(value);
+
+    if(value.length() >= 200){
+      ss << escape_string(value.substr(0,199) + std::to_string(i));
+    }else{
+      ss << escape_string(value);
+    }
+
     ss << ",\"label_idx\": ";
     ss << i;
     ss << ",\"count\": ";
     ss << count;
-    ss << "}";
-
-    if(x != (size_list - 1)){
-      ss << ",";
-    }
+    ss << ",\"percentage\": \"";
+    ss << ((float)(100.0 * count))/((float) m_count.emit());
+    ss << "%\"}";
 
     x++;
   }
 
   return ss.str();
 }
+
+namespace turi {
+  namespace visualization {
+
+    std::shared_ptr<Plot> plot_item_frequency(
+      const gl_sarray& sa, const flexible_type& xlabel, const flexible_type& ylabel, 
+      const flexible_type& title) {
+
+        using namespace turi;
+        using namespace turi::visualization;
+
+        logprogress_stream << "Materializing SArray" << std::endl;
+        sa.materialize();
+
+        if (sa.size() == 0) {
+          log_and_throw("Nothing to show; SArray is empty.");
+        }
+
+        std::shared_ptr<const gl_sarray> self = std::make_shared<const gl_sarray>(sa);
+
+        item_frequency item_freq;
+        item_freq.init(*self);
+
+        auto transformer = std::dynamic_pointer_cast<item_frequency_result>(item_freq.get());
+        auto result = transformer->emit().get<flex_dict>();
+        size_t length_list = std::min(200UL, result.size());
+        
+        std::string category_spec = categorical_spec(length_list, title, xlabel, ylabel, self->dtype());
+
+        double size_array = static_cast<double>(self->size());
+
+        std::shared_ptr<transformation_base> shared_unity_transformer = std::make_shared<item_frequency>(item_freq);
+        return std::make_shared<Plot>(category_spec, shared_unity_transformer, size_array);
+      }
+
+  }
+}
+

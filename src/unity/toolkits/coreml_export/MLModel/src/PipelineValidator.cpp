@@ -13,7 +13,7 @@
 namespace CoreML {
 
     static Result validate(const Specification::Model& spec, const Specification::Pipeline& pipelineParams) {
-        const size_t nModels = pipelineParams.models_size();
+        const int nModels = pipelineParams.models_size();
         if (nModels == 0) {
             // empty chain is not allowed
             return Result(ResultType::INVALID_MODEL_PARAMETERS, "Pipeline must contain one or more models.");

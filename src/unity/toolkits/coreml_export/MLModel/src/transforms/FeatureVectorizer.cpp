@@ -38,10 +38,10 @@ namespace CoreML {
     auto p = m_spec->featurevectorizer();
     auto container = p.inputlist();
   
-    std::vector<std::pair<std::string, size_t> > out(container.size());
+    std::vector<std::pair<std::string, size_t> > out(static_cast<size_t>(container.size()));
     
     for(int i = 0; i < container.size(); ++i) {
-      out[i] = {container[i].inputcolumn(), container[i].inputdimensions()};
+      out[static_cast<size_t>(i)] = {container[i].inputcolumn(), container[i].inputdimensions()};
     }
     
     return out;

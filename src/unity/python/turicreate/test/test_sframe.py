@@ -9,7 +9,6 @@ from __future__ import absolute_import as _
 from ..data_structures.sframe import SFrame
 from ..data_structures.sarray import SArray
 from ..data_structures.image import Image
-from ..connect import main as glconnect
 from ..util import _assert_sframe_equal, generate_random_sframe
 from .. import _launch, load_sframe, aggregate
 from . import util
@@ -39,15 +38,7 @@ from .dbapi2_mock import dbapi2_mock
 #######################################################
 # Metrics tracking tests are in test_usage_metrics.py #
 #######################################################
-# Taken from http://stackoverflow.com/questions/1151658/python-hashable-dicts
-# by Alex Martelli
-class hashabledict(dict):
-    def __key(self):
-        return tuple((k,self[k]) for k in sorted(self))
-    def __hash__(self):
-        return hash(self.__key())
-    def __eq__(self, other):
-        return self.__key() == other.__key()
+
 
 class SFrameTest(unittest.TestCase):
     def setUp(self):
@@ -154,9 +145,10 @@ class SFrameTest(unittest.TestCase):
 
 
     def __test_equal(self, sf, df):
+        # asserts two frames are equal, ignoring column ordering.
         self.assertEqual(sf.num_rows(), df.shape[0])
         self.assertEqual(sf.num_columns(), df.shape[1])
-        assert_frame_equal(sf.to_dataframe(), df)
+        assert_frame_equal(sf.to_dataframe(), df[sf.column_names()])
 
     def __create_test_df(self, size):
         int_data = []
@@ -196,6 +188,25 @@ class SFrameTest(unittest.TestCase):
         sf = SFrame(data=original_p)
         self.__test_equal(sf, original_p)
 
+    def test_auto_parse_csv_with_bom(self):
+        with tempfile.NamedTemporaryFile(mode='w', delete=False) as csvfile:
+            df = pd.DataFrame({'float_data': self.float_data,
+                               'int_data': self.int_data,
+                               'string_data': self.a_to_z[:len(self.int_data)]})
+            df.to_csv(csvfile, index=False)
+            csvfile.close()
+
+            import codecs
+            with open(csvfile.name, 'rb') as f:
+                content = f.read()
+            with open(csvfile.name, 'wb') as f:
+                f.write(codecs.BOM_UTF8)
+                f.write(content)
+
+            sf = SFrame.read_csv(csvfile.name, header=True)
+            self.assertEqual(sf.dtype, [float, int, str])
+            self.__test_equal(sf, df)
+
     def test_auto_parse_csv(self):
         with tempfile.NamedTemporaryFile(mode='w', delete=False) as csvfile:
             df = pd.DataFrame({'float_data': self.float_data,
@@ -208,7 +219,6 @@ class SFrameTest(unittest.TestCase):
 
             self.assertEqual(sf.dtype, [float, int, str])
             self.__test_equal(sf, df)
-
 
     def test_parse_csv(self):
         with tempfile.NamedTemporaryFile(mode='w', delete=False) as csvfile:
@@ -439,6 +449,16 @@ class SFrameTest(unittest.TestCase):
         sf2 = SFrame.read_json(f.name)
         sf2['float_data'] = sf2['float_data'].astype(float)
         self.__test_equal(sf2, self.dataframe)
+
+        with open(f.name, 'w') as out:
+            out.write('[\n]')
+        sf = SFrame.read_json(f.name)
+        self.__test_equal(SFrame(), sf.to_dataframe())
+
+        with open(f.name, 'w') as out:
+            out.write('')
+        sf = SFrame.read_json(f.name, orient='lines')
+        self.__test_equal(SFrame(), sf.to_dataframe())
 
         sf = SFrame(data=self.dataframe, format='dataframe')
         sf.export_json(f.name, orient='lines')
@@ -867,6 +887,8 @@ class SFrameTest(unittest.TestCase):
         sample_sf2 = sf.sample(.12, 9)
         self.assertEqual(len(sample_sf), len(sample_sf2))
         assert_frame_equal(sample_sf.head().to_dataframe(), sample_sf2.head().to_dataframe())
+        self.assertEqual(len(sf.sample(0.5,1,exact=True)), 50)
+        self.assertEqual(len(sf.sample(0.5,2,exact=True)), 50)
 
         for i in sample_sf:
             self.assertTrue(str(i) in entry_list)
@@ -892,6 +914,9 @@ class SFrameTest(unittest.TestCase):
 
         self.assertEqual(len(SFrame().random_split(.4)[0]), 0)
         self.assertEqual(len(SFrame().random_split(.4)[1]), 0)
+
+        self.assertEqual(len(sf.random_split(0.5,1,exact=True)[0]), 50)
+        self.assertEqual(len(sf.random_split(0.5,2,exact=True)[0]), 50)
 
     # tests add_column, rename
     def test_edit_column_ops(self):
@@ -1073,10 +1098,13 @@ class SFrameTest(unittest.TestCase):
             values = range(m)
             vector_values = [[random.randint(1,100) for num in range(10)] \
                                                           for y in range(m)]
+            nd_values = [np.array([float(random.randint(1,100)) for num in range(10)]).reshape(2,5) \
+                                                          for y in range(m)]
             sf = SFrame()
             sf['key'] = [1] * m
             sf['value'] = values
             sf['vector_values'] = vector_values
+            sf['nd_values'] = nd_values 
             sf.__materialize__()
             built_ins = [aggregate.COUNT(), aggregate.SUM('value'),
                     aggregate.AVG('value'), aggregate.MIN('value'),
@@ -1085,7 +1113,9 @@ class SFrameTest(unittest.TestCase):
                     aggregate.MEAN('vector_values'),
                     aggregate.COUNT_DISTINCT('value'),
                     aggregate.DISTINCT('value'),
-                    aggregate.FREQ_COUNT('value')]
+                    aggregate.FREQ_COUNT('value'),
+                    aggregate.SUM('nd_values'),
+                    aggregate.MEAN('nd_values')]
             sf2 = sf.groupby('key', built_ins)
             self.assertEqual(len(sf2), 1)
             self.assertEqual(sf2['Count'][0], m)
@@ -1099,6 +1129,10 @@ class SFrameTest(unittest.TestCase):
                     list(np.sum(vector_values, axis=0)))
             np.testing.assert_almost_equal(list(sf2['Vector Avg of vector_values'][0]),
                     list(np.mean(vector_values, axis=0)))
+            np.testing.assert_almost_equal(list(sf2['Vector Sum of nd_values'][0]),
+                    list(np.sum(nd_values, axis=0)))
+            np.testing.assert_almost_equal(list(sf2['Vector Avg of nd_values'][0]),
+                    list(np.mean(nd_values, axis=0)))
             self.assertEqual(sf2['Count Distinct of value'][0],
                     len(np.unique(values)))
             self.assertEqual(sorted(sf2['Distinct of value'][0]),
@@ -3382,6 +3416,69 @@ class SFrameTest(unittest.TestCase):
         assert sf is not sf_copy
 
         _assert_sframe_equal(sf, sf_copy)
+
+    def test_builtins(self):
+        import builtins
+        import six
+
+        sf = SFrame({'dict': [builtins.dict({'foo': 'bar'})],
+                     'float': [builtins.float(3.14)],
+                     'int': [builtins.int(12)],
+                     'bool': [builtins.bool(False)],
+                     'list': [builtins.list([1,2,3])],
+                     'str': [builtins.str('foo')],
+                     'tuple': [builtins.tuple((1,2))],
+        })
+        sf2 = SFrame({'dict': [{'foo': 'bar'}],
+                     'float': [3.14],
+                     'int': [12],
+                     'bool': [False],
+                     'list': [[1,2,3]],
+                     'str': ['foo'],
+                     'tuple': [(1,2)],
+        })
+
+        if six.PY2:
+            sf = sf.add_columns(SFrame(
+                {'long': [builtins.long(12)], 'unicode': [builtins.unicode('foo')]}))
+            sf2 = sf2.add_columns(SFrame(
+                {'long': [12], 'unicode': [unicode('foo')]}))
+
+        _assert_sframe_equal(sf, sf2)
+    
+    def test_add_column_nonSArray(self):
+        sf = SFrame()
+        sf = sf.add_column([1,2,3,4],'x')
+    
+        sf_test = SFrame()
+        sf_test['x'] = SArray([1,2,3,4])
+        
+        _assert_sframe_equal(sf, sf_test)
+    
+    
+    def test_add_column_noniterable1(self):
+        sf = SFrame()
+        sf = sf.add_column([1,2,3,4],'x')
+        sf = sf.add_column(5,'y')
+    
+        sf_test = SFrame()
+        sf_test['x'] = SArray([1,2,3,4])
+        sf_test['y'] = 5
+        
+        _assert_sframe_equal(sf, sf_test)
+    
+    
+
+    def test_add_column_noniterable2(self):
+        # If SFrame is empty then the passed data should be treated as an SArray of size 1
+        sf = SFrame()
+        sf = sf.add_column(5,'y')
+
+        sf_test = SFrame()
+        sf_test['y'] = SArray([5])
+        
+        _assert_sframe_equal(sf, sf_test)
+
 
 if __name__ == "__main__":
 

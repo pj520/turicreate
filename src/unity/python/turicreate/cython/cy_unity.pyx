@@ -4,9 +4,11 @@
 # Use of this source code is governed by a BSD-3-clause license that can
 # be found in the LICENSE.txt file or at https://opensource.org/licenses/BSD-3-Clause
 from .cy_variant cimport variant_type
+from .cy_variant cimport variant_map_type_iterator
 from .cy_variant cimport from_dict as variant_map_from_dict
 from .cy_variant cimport to_dict as variant_map_to_dict
 from .cy_variant cimport from_value as variant_from_value
+from .cy_variant cimport to_value as variant_to_value
 from .cy_variant cimport make_shared_variant
 
 from .cy_flexible_type cimport pylist_from_flex_list
@@ -29,9 +31,24 @@ from libcpp.map cimport map
 from .cy_cpp_utils cimport str_to_cpp, cpp_to_str, from_vector_of_strings, disable_cpp_str_decode, enable_cpp_str_decode
 
 from cython.operator cimport dereference as deref
+from cython.operator cimport preincrement as inc
 import inspect
 from ..util import cloudpickle
 import pickle
+
+
+cdef read_archive_version(variant_map_type& d):
+    """
+    Reads only the 'archive_version' from a model state.
+    """
+    cdef variant_map_type_iterator it = d.begin()
+    ret = -1
+    while (it != d.end()):
+        if cpp_to_str(deref(it).first) == 'archive_version':
+            ret = variant_to_value(deref(it).second)
+            break
+        inc(it)
+    return ret
 
 
 cdef class UnityGlobalProxy:
@@ -78,32 +95,39 @@ cdef class UnityGlobalProxy:
                 variant_map_to_dict(response.params))
 
     cpdef save_model(self, model, _url, sidedata={}):
-        cdef string url = str_to_cpp(_url) 
+        cdef string url = str_to_cpp(_url)
         proxy = model.__proxy__
-        cdef model_base_ptr m = ((<UnityModel?>(proxy))._base_ptr)
+        cdef model_base_ptr m = ((<UnityModel?>(proxy.__proxy__))._base_ptr)
         cdef variant_map_type varmap_sidedata = variant_map_from_dict(sidedata)
         with nogil:
             self.thisptr.save_model(m, varmap_sidedata, url)
 
     cpdef save_model2(self, _modelname, _url, sidedata={}):
-        cdef string modelname = str_to_cpp(_modelname) 
-        cdef string url = str_to_cpp(_url) 
+        cdef string modelname = str_to_cpp(_modelname)
+        cdef string url = str_to_cpp(_url)
         cdef variant_map_type varmap_sidedata = variant_map_from_dict(sidedata)
         with nogil:
             self.thisptr.save_model2(modelname, varmap_sidedata, url)
 
     cpdef load_model(self, _url):
-        cdef string url = str_to_cpp(_url) 
+        cdef string url = str_to_cpp(_url)
         cdef variant_map_type response
         with nogil:
             response = self.thisptr.load_model(url)
 
-        try:
-            disable_cpp_str_decode()
+        version = read_archive_version(response)
+        if version <= 0:
+            # Legacy model, read all strings as bytes
+            try:
+                disable_cpp_str_decode()
+                variant_dict = variant_map_to_dict(response)
+                return variant_dict
+            finally:
+                enable_cpp_str_decode()
+        else:
             variant_dict = variant_map_to_dict(response)
             return variant_dict
-        finally:
-             enable_cpp_str_decode()
+
 
     cpdef eval_lambda(self, object fn, object arg):
         assert inspect.isfunction(fn), "First argument must be a function"
@@ -147,6 +171,9 @@ cdef class UnityGlobalProxy:
 
     cpdef __get_allocated_size__(self):
         return self.thisptr.__get_allocated_size__()
+
+    cpdef set_log_level(self, size_t level):
+        return self.thisptr.set_log_level(level)
 
     cpdef list_globals(self, bint runtime_modifiable):
         return pydict_from_gl_options_map(self.thisptr.list_globals(runtime_modifiable))

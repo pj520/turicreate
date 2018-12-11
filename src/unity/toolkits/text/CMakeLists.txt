@@ -7,10 +7,10 @@ make_library(unity_text
     cgs.cpp
     alias.cpp
     perplexity.cpp
+    class_registrations.cpp
   REQUIRES
     numerics
     unity_core
-    unity_options
     unity_ml_model
     random
     logger

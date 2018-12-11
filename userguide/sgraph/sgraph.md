@@ -16,7 +16,7 @@ seamless transformation to and from SFrames.
 
 There are several ways to create an SGraph. The simplest is to start
 with an empty graph, then add vertices and edges in the form of lists of
-turicreate.Vertex and turicreate.Edge objects. SGraphs are structually
+turicreate.Vertex and turicreate.Edge objects. SGraphs are structurally
 immutable; in the following snippet, `add_vertices` and `add_edges` both
 return a new graph.
 
@@ -54,7 +54,7 @@ edge_data = SFrame.read_csv('bond_edges.csv')
 
 g = SGraph()
 g = g.add_edges(edge_data, src_field='src', dst_field='dst')
-print g
+print(g)
 ```
 ```no-highlight
 SGraph({'num_edges': 20, 'num_vertices': 10})
@@ -85,14 +85,7 @@ new_graph = turicreate.load_sgraph('james_bond.sgraph')
 
 #### Inspecting SGraphs
 
-Small graphs can be explored very efficiently with the `SGraph.show` method,
-which displays a plot of the graph. The vertex labels can be IDs or any vertex
-attribute.
-
-![Bond graph](images/bond_basic.png)
-
-For large graphs visual displays are difficult, but graph exploration
-can still be done with the `SGraph.summary`---which prints the number of
+Graphs can be explored with `SGraph.summary`---which prints the number of
 vertices and edges---or by retrieving and plotting subsets of edges and
 vertices.
 
@@ -110,11 +103,11 @@ edges.
 
 ```python
 sub_verts = g.get_vertices(ids=['James Bond'])
-print sub_verts
+print(sub_verts)
 ```
 ```no-highlight
 +------------+--------+-----------------+---------+
-|    __id    | gender | license_to_kill | villian |
+|    __id    | gender | license_to_kill | villain |
 +------------+--------+-----------------+---------+
 | James Bond |   M    |        1        |    0    |
 +------------+--------+-----------------+---------+
@@ -123,7 +116,7 @@ print sub_verts
 
 ```python
 sub_edges = g.get_edges(fields={'relation': 'worksfor'})
-print sub_edges
+print(sub_edges)
 ```
 ```no-highlight
 +---------------+-------------+----------+
@@ -151,14 +144,15 @@ a neighbor.
 ```python
 targets = ['James Bond', 'Moneypenny']
 subgraph = g.get_neighborhood(ids=targets, radius=1, full_subgraph=True)
+print(subgraph)
 ```
-![Bond neighborhood](images/bond_neighborhood.png)
-
-
+```no-highlight
+SGraph({'num_edges': 15, 'num_vertices': 8})
+```
 
 #### Modifying SGraphs
 
-SGraphs are *structually immutable*, but the data stored on vertices and edges
+SGraphs are *structurally immutable*, but the data stored on vertices and edges
 can be mutated using two special SGraph properties. `SGraph.vertices` and
 `SGraph.edges` are SFrames containing the vertex and edge data, respectively.
 The following examples show the difference between the special graph-related
@@ -183,7 +177,7 @@ g.get_edges().print_rows(5)
 ```
 
 The difference is that the return value of `g.get_edges()` is a normal SFrame
-indepedent from `g`, whereas `g.edges` is bound to `g`. We can modify the edge
+independent from `g`, whereas `g.edges` is bound to `g`. We can modify the edge
 data using this special edge SFrame. The next snippet mutates the relation
 attribute on the edges of `g`. In particular, it extracts the first letter and
 converts it to upper case.
@@ -240,7 +234,7 @@ e['is_friend'] = e['relation'].apply(lambda x: x[0] == 'F')
 
 Another important difference of these two special SFrames is that the `__id`,
 `__src_id`, and `__dst_id` fields are not mutable because changing them would
-change the structure of the graph and SGraph is *structually immutable*.
+change the structure of the graph and SGraph is *structurally immutable*.
 
 Otherwise, `g.vertices` and `g.edges` act like normal SFrames, which makes
 modifying graph data very easy. For example, adding (removing) an edge
@@ -294,7 +288,7 @@ print g.vertices.sort('degree', ascending=False)
 ```
 ```no-highlight
 +----------------+--------+--------+-----------------+---------+
-|      __id      | degree | gender | license_to_kill | villian |
+|      __id      | degree | gender | license_to_kill | villain |
 +----------------+--------+--------+-----------------+---------+
 |   James Bond   |   8    |   M    |        1        |    0    |
 | Elliot Carver  |   7    |   M    |        0        |    1    |
@@ -312,6 +306,6 @@ print g.vertices.sort('degree', ascending=False)
 
 James Bond is quite the popular guy!
 
-To learn more, check out the [graph analytics toolkits](../graph_analytics/intro.md), the
+To learn more, check out the [graph analytics toolkits](../graph_analytics/README.md), the
 [API Reference](https://apple.github.io/turicreate/docs/api/generated/turicreate.SGraph.html)
 for SGraphs.

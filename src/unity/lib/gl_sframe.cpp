@@ -196,7 +196,7 @@ gl_sframe& gl_sframe::operator=(const gl_sframe& other) {
 
 
 gl_sframe& gl_sframe::operator=(gl_sframe&& other) {
-  m_sframe = std::move(other.get_proxy());
+  m_sframe = other.get_proxy();
   return *this;
 }
 
@@ -403,8 +403,7 @@ void gl_sframe::save(const std::string& _path, const std::string& _format) const
   std::string format = _format;
   // fill format is not filled
   if (format == "") {
-    if (boost::algorithm::ends_with(format, ".csv") ||
-        boost::algorithm::ends_with(format, ".csv.gz")) {
+    if (boost::algorithm::ends_with(path, ".csv") || boost::algorithm::ends_with(path, ".csv.gz")) {
       format = "csv";
     } else {
       format = "binary";
@@ -412,10 +411,10 @@ void gl_sframe::save(const std::string& _path, const std::string& _format) const
   }
 
   // append .csv if is csv
-  if (format == "csv" &&
-      !(boost::algorithm::ends_with(format, ".csv") ||
-        boost::algorithm::ends_with(format, ".csv.gz"))) {
-    path = path + ".csv";    
+  if (format == "csv") {
+    if(!(boost::algorithm::ends_with(path, ".csv") || boost::algorithm::ends_with(path, ".csv.gz"))) {
+      path = path + ".csv";
+    }
   } else if (format != "binary") {
     throw std::string("Invalid format. Supported formats are \'csv\' and \'binary\'");
   }
@@ -447,8 +446,7 @@ void gl_sframe::ensure_has_sframe_reader() const {
   if (!m_sframe_reader) {
     std::lock_guard<mutex> guard(reader_shared_ptr_lock);
     if (!m_sframe_reader) {
-      m_sframe_reader =
-          std::move(get_proxy()->get_underlying_sframe()->get_reader());
+      m_sframe_reader = get_proxy()->get_underlying_sframe()->get_reader();
     }
   }
 }
@@ -473,15 +471,15 @@ gl_sarray gl_sframe::apply(std::function<flexible_type(const sframe_rows::row&)>
 gl_sframe gl_sframe::sample(double fraction) const {
   return get_proxy()->sample(fraction, time(NULL));
 }
-gl_sframe gl_sframe::sample(double fraction, size_t seed) const {
-  return get_proxy()->sample(fraction, seed);
+gl_sframe gl_sframe::sample(double fraction, size_t seed, bool exact) const {
+  return get_proxy()->sample(fraction, seed, exact);
 }
 std::pair<gl_sframe, gl_sframe> gl_sframe::random_split(double fraction) const {
   return random_split(fraction, time(NULL));
 }
 
-std::pair<gl_sframe, gl_sframe> gl_sframe::random_split(double fraction, size_t seed) const {
-  auto list = get_proxy()->random_split(fraction, seed);
+std::pair<gl_sframe, gl_sframe> gl_sframe::random_split(double fraction, size_t seed, bool exact) const {
+  auto list = get_proxy()->random_split(fraction, seed, exact);
   std::pair<gl_sframe, gl_sframe> ret;
   ASSERT_EQ(list.size(), 2);
   auto iter = list.begin(); ret.first = (*iter);
@@ -770,9 +768,6 @@ gl_sframe gl_sframe::unpack(const std::string& unpack_column,
   std::set<std::string> colnames_set(colnames.begin(), colnames.end());
   if (colnames_set.count(unpack_column) == 0) {
     throw std::string("column \'" + unpack_column + "\' does not exist in current SFrame");
-  }
-  if (column_name_prefix == "") {
-    column_name_prefix = unpack_column;
   }
 
   gl_sframe new_sf = select_column(unpack_column).
@@ -1160,6 +1155,10 @@ gl_sframe gl_sframe_writer_impl::close() {
 
 void gl_sframe::show(const std::string& path_to_client) const {
   get_proxy()->show(path_to_client);
+}
+
+std::shared_ptr<model_base> gl_sframe::plot() const {
+  return get_proxy()->plot();
 }
 
 /**************************************************************************/

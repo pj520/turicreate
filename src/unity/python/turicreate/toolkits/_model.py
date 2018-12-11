@@ -11,11 +11,12 @@ Defines a basic interface for a model object.
 from __future__ import print_function as _
 from __future__ import division as _
 from __future__ import absolute_import as _
-import json
 
 import turicreate as _tc
 import turicreate.connect.main as glconnect
 from turicreate.data_structures.sframe import SFrame as _SFrame
+import turicreate.extensions as _extensions
+from turicreate.extensions import _wrap_function_return
 from turicreate.toolkits._internal_utils import _toolkit_serialize_summary_struct
 from turicreate.util import _make_internal_url
 from turicreate.toolkits._main import ToolkitError
@@ -63,27 +64,50 @@ def load_model(location):
         else:
             import posixpath
             dir_archive_exists = file_util.exists(posixpath.join(model_path, 'dir_archive.ini'))
-    model = None
     if not dir_archive_exists:
         raise IOError("Directory %s does not exist" % location)
 
     _internal_url = _make_internal_url(location)
     saved_state = glconnect.get_unity().load_model(_internal_url)
-    if saved_state['archive_version'] == 1:
-        cls = MODEL_NAME_MAP[saved_state['model_name']]
-        if 'model' in saved_state:
-            # this is a native model
-            return cls(saved_state['model'])
+    saved_state = _wrap_function_return(saved_state)
+    # The archive version could be both bytes/unicode
+    key = u'archive_version'
+    archive_version = saved_state[key] if key in saved_state else saved_state[key.encode()]
+    if archive_version < 0:
+        raise ToolkitError("File does not appear to be a Turi Create model.")
+    elif archive_version > 1:
+        raise ToolkitError("Unable to load model.\n\n"
+                           "This model looks to have been saved with a future version of Turi Create.\n"
+                           "Please upgrade Turi Create before attempting to load this model file.")
+    elif archive_version == 1:
+        name = saved_state['model_name'];
+        if name in MODEL_NAME_MAP: 
+            cls = MODEL_NAME_MAP[name]
+
+            if 'model' in saved_state:
+                # this is a native model
+                return cls(saved_state['model'])
+            else:
+                # this is a CustomModel
+                model_data = saved_state['side_data']
+                model_version = model_data['model_version']
+                del model_data['model_version']
+                return cls._load_version(model_data, model_version)
+
+        elif hasattr(_extensions, name):
+            return saved_state["model"]
         else:
-            # this is a CustomModel
-            model_data = saved_state['side_data']
-            model_version = model_data['model_version']
-            del model_data['model_version']
-            return cls._load_version(model_data, model_version)
+            raise ToolkitError("Unable to load model of name '%s'; model name not registered." % name)
     else:
         # very legacy model format. Attempt pickle loading
         import sys
         sys.stderr.write("This model was saved in a legacy model format. Compatibility cannot be guaranteed in future versions.\n")
+        if _six.PY3:
+            raise ToolkitError("Unable to load legacy model in Python 3.\n\n"
+                               "To migrate a model, try loading it using Turi Create 4.0 or\n"
+                               "later in Python 2 and then re-save it. The re-saved model should\n"
+                               "work in Python 3.")
+
         if 'graphlab' not in sys.modules:
             sys.modules['graphlab'] = sys.modules['turicreate']
             # backward compatibility. Otherwise old pickles will not load
@@ -96,8 +120,8 @@ def load_model(location):
                     sys.modules[k.replace('turicreate', 'graphlab')] = v
         #legacy loader
         import pickle
-        model_wrapper = pickle.loads(saved_state['model_wrapper'])
-        return model_wrapper(saved_state['model_base'])
+        model_wrapper = pickle.loads(saved_state[b'model_wrapper'])
+        return model_wrapper(saved_state[b'model_base'])
 
 
 def _get_default_options_wrapper(unity_server_model_name,
@@ -448,6 +472,7 @@ class Model(ExposeAttributesFromProxy):
         elif output == 'dict':
             return _toolkit_serialize_summary_struct( self, \
                                             *self._get_summary_struct() )
+
         try:
             print(self.__repr__())
         except:
@@ -619,7 +644,7 @@ class CustomModel(ExposeAttributesFromProxy):
         raise NotImplementedError("_get_version not implemented")
 
     def __getitem__(self, key):
-        return self.get(key)
+        return self._get(key)
 
     def _get_native_state(self):
         raise NotImplementedError("_get_native_state not implemented")
@@ -647,7 +672,8 @@ class CustomModel(ExposeAttributesFromProxy):
         import copy
         state = copy.copy(self._get_native_state())
         state['model_version'] = self._get_version()
-        return glconnect.get_unity().save_model2(self.__class__._native_name(), location, state)
+        return glconnect.get_unity().save_model2(
+            self.__class__._native_name(), _make_internal_url(location), state)
 
     @classmethod
     def _native_name(cls):

@@ -1,12 +1,12 @@
-/* Copyright © 2017 Apple Inc. All rights reserved.
- *
- * Use of this source code is governed by a BSD-3-clause license that can
- * be found in the LICENSE.txt file or at https://opensource.org/licenses/BSD-3-Clause
- */
+//
+//  StandardScalarValidator
+//  libmlmodelspec
+//
+
 #include "Result.hpp"
 #include "Validators.hpp"
 #include "ValidatorUtils-inl.hpp"
-#include "../build/format/Model.pb.h"
+#include "unity/toolkits/coreml_export/protobuf_include_internal.hpp"
 
 namespace CoreML {
 
@@ -21,7 +21,7 @@ namespace CoreML {
         Result result;
 
         // Validate its a MLModel type.
-        result = validateModelDescription(description);
+        result = validateModelDescription(description, format.specificationversion());
         if (!result.good()) {
             return result;
         }
@@ -73,7 +73,7 @@ namespace CoreML {
             }
             
             // Now, make sure that the repeated values make sense.
-            size_t shift_size = format.scaler().shiftvalue_size();
+            int64_t shift_size = static_cast<int64_t>(format.scaler().shiftvalue_size());
             
             if(!(shift_size == 0 || shift_size == 1
                  || shift_size == input.type().multiarraytype().shape(0))) {
@@ -83,7 +83,7 @@ namespace CoreML {
             }
             
                 // Now, make sure that the repeated values make sense.
-            size_t scale_size = format.scaler().scalevalue_size();
+            int64_t scale_size = static_cast<int64_t>(format.scaler().scalevalue_size());
             
             if(!(scale_size == 0 || scale_size == 1
                  || scale_size == input.type().multiarraytype().shape(0))) {
@@ -93,7 +93,7 @@ namespace CoreML {
             }
         } else {
                 // Now, make sure that the repeated values make sense.
-            size_t shift_size = format.scaler().shiftvalue_size();
+            size_t shift_size = static_cast<size_t>(format.scaler().shiftvalue_size());
             
             if(!(shift_size == 0 || shift_size == 1)) {
                 
@@ -102,7 +102,7 @@ namespace CoreML {
             }
             
                 // Now, make sure that the repeated values make sense.
-            size_t scale_size = format.scaler().scalevalue_size();
+            size_t scale_size = static_cast<size_t>(format.scaler().scalevalue_size());
             
             if(!(scale_size == 0 || scale_size == 1)) {
                 

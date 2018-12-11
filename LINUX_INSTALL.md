@@ -7,8 +7,13 @@ The minimum requirements are:
  - libstdc++ >= 6.0.21
  - libblas
  - liblapack
+ - libgconf-2-4 (on Ubuntu 17.10 and later)
 
 ## Ubuntu
+
+### Ubuntu >= 17.10
+
+Follow the instructions for Ubuntu >= 16.04, but also install `libgconf-2-4`. This was previously included in desktop Ubuntu distributions but now needs to be installed separately starting with 17.10.
 
 ### Ubuntu >= 16.04
 On recent versions of Ubuntu, we just need a few dependencies
@@ -45,10 +50,10 @@ On older versions, we need to get a newer installation of libstdc++. This should
 
 ```shell
 sudo apt-get -y install libblas3 liblapack3 python-setuptools
-wget http://security.ubuntu.com/ubuntu/pool/main/g/gcc-5/gcc-5-base_5.4.0-6ubuntu1~16.04.4_amd64.deb
-wget http://security.ubuntu.com/ubuntu/pool/main/g/gcc-5/libstdc++6_5.4.0-6ubuntu1~16.04.4_amd64.deb
-sudo dpkg -i gcc-5-base_5.4.0-6ubuntu1~16.04.4_amd64.deb
-sudo dpkg -i libstdc++6_5.4.0-6ubuntu1~16.04.4_amd64.deb
+wget http://security.ubuntu.com/ubuntu/pool/main/g/gcc-5/gcc-5-base_5.4.0-6ubuntu1~16.04.10_amd64.deb
+wget http://security.ubuntu.com/ubuntu/pool/main/g/gcc-5/libstdc++6_5.4.0-6ubuntu1~16.04.10_amd64.deb
+sudo dpkg -i gcc-5-base_5.4.0-6ubuntu1~16.04.10_amd64.deb
+sudo dpkg -i libstdc++6_5.4.0-6ubuntu1~16.04.10_amd64.deb
 sudo easy_install pip
 sudo pip install virtualenv
 ```
@@ -96,7 +101,7 @@ sudo make install
 ```
 
 
-Every time you open a new bash session, you should run the following commands.You could put them in ~/.bashrc for convenience.
+Every time you open a new bash session, you should run the following commands. You could put them in `~/.bashrc` for convenience.
 
 ```shell
 export LD_LIBRARY_PATH=/usr/local/lib64:$LD_LIBRARY_PATH
@@ -140,13 +145,13 @@ We will need to get a newer libstdc++ from a package in the Nux Dextop repo.
 
 ```shell
 wget ftp://ftp.pbone.net/mirror/li.nux.ro/download/nux/dextop/el6/x86_64/chrome-deps-stable-3.11-1.x86_64.rpm
-sudo rpm -i --badreloc --noscripts --relocate /opt/google/chrome=$HOME chrome-deps-stable-3.11-1.x86_64.rp
+sudo rpm -i --badreloc --noscripts --relocate /opt/google/chrome=$HOME chrome-deps-stable-3.11-1.x86_64.rpm
 ```
 
-This will install libstdc++.so into $HOME/lib. 
+This will install `libstdc++.so` into `$HOME/lib`. 
 Alternatively, you can compile gcc >= 5.4 from source.
 
-Every time you open a new bash session, you should run the following commands.You could put them in ~/.bashrc for convenience.
+Every time you open a new bash session, you should run the following commands. You could put them in `~/.bashrc` for convenience.
 
 ```shell
 export LD_LIBRARY_PATH=$HOME/lib:$LD_LIBRARY_PATH
@@ -192,9 +197,21 @@ sudo yum install -y centos-release-SCL
 sudo yum install -y python27
 ```
 
-Alternatively, iIf you compile Python 2.7 from source, you *must* configure
-with --enable-unicode=ucs4, and we recommend --with-suffix=2.7 to avoid name
+Alternatively, if you compile Python 2.7 from source, you *must* configure
+with `--enable-unicode=ucs4` and `--enable-shared`, and we recommend --with-suffix=2.7 to avoid name
 collisions.
+
+To check if your Python has the correct unicode version:
+```python
+# When built with --enable-unicode=ucs4:
+>>> import sys
+>>> print sys.maxunicode
+1114111
+# When built with --enable-unicode=ucs2:
+>>> import sys
+>>> print sys.maxunicode
+65535
+```
 
 #### Obtain a recent libstdc++
 
@@ -205,7 +222,7 @@ wget ftp://ftp.pbone.net/mirror/li.nux.ro/download/nux/dextop/el6/x86_64/chrome-
 sudo rpm -i --badreloc --noscripts --relocate /opt/google/chrome=$HOME chrome-deps-stable-3.11-1.x86_64.rpm
 ```
 
-This will install libstdc++.so into $HOME/lib. 
+This will install `libstdc++.so` into `$HOME/lib`. 
 Alternatively, you can compile gcc >= 5.4 from source.
 
 #### Installing the other dependencies
@@ -216,7 +233,7 @@ sudo yum install -y blas lapack
 
 #### Setting up your environment
 
-Every time you open a new bash session, you should run the following commands.You could put them in ~/.bashrc for convenience.
+Every time you open a new bash session, you should run the following commands. You could put them in `~/.bashrc` for convenience.
 
 ```shell
 export LD_LIBRARY_PATH=$HOME/lib:$LD_LIBRARY_PATH

@@ -18,9 +18,6 @@
 #include <table_printer/table_printer.hpp>
 #include <numerics/armadillo.hpp>
 
-#ifdef HAS_DISTRIBUTED
-#include <distributed/utils.hpp>
-#endif
 
 // TODO: List of todo's for this file
 //------------------------------------------------------------------------------
@@ -77,6 +74,10 @@ inline solver_return accelerated_gradient(first_order_opt_interface& model,
     std::stringstream ss;
     ss.str("");
 
+    // First iteration will take longer. Warn the user.
+    logprogress_stream <<"Tuning step size. First iteration could take longer"
+                       <<" than subsequent iterations." << std::endl;
+
     // Print progress 
     table_printer printer(
         model.get_status_header({"Iteration", "Passes", "Step size", "Elapsed Time"}));
@@ -108,10 +109,12 @@ inline solver_return accelerated_gradient(first_order_opt_interface& model,
     double residual = compute_residual(gradient);
     stats.num_passes++;
     
-    // First iteration will take longer. Warn the user.
-    logprogress_stream <<"Tuning step size. First iteration could take longer"
-                       <<" than subsequent iterations." << std::endl;
-    
+    std::vector<std::string> stat_info = {std::to_string(iters),
+                                          std::to_string(stats.num_passes),
+                                          std::to_string(step_size),
+                                          std::to_string(tmr.current_time())};
+    std::vector<std::string> row = model.get_status(point, stat_info);
+    printer.print_progress_row_strs(iters, row);
 
     // Value of parameters t in itersation k-1 and k
     double t = 1;                           // t_k   
@@ -197,11 +200,11 @@ inline solver_return accelerated_gradient(first_order_opt_interface& model,
       }
 
       // Print progress
-      auto stat_info = {std::to_string(iters), 
-                        std::to_string(stats.num_passes),
-                        std::to_string(step_size), 
-                        std::to_string(tmr.current_time())};
-      auto row = model.get_status(point, stat_info);
+      stat_info = {std::to_string(iters),
+                   std::to_string(stats.num_passes),
+                   std::to_string(step_size),
+                   std::to_string(tmr.current_time())};
+      row = model.get_status(point, stat_info);
       printer.print_progress_row_strs(iters, row);
       
       // Log info for debugging. 
@@ -210,11 +213,6 @@ inline solver_return accelerated_gradient(first_order_opt_interface& model,
                           << "Residual (" << residual << ") " 
                           << "Loss (" << fy << ") " 
                           << std::endl;
-
-#ifdef HAS_DISTRIBUTED
-      bool gradient_all_equals = distributed_check_equals(arma::norm(gradient, 2));
-      ASSERT_MSG(gradient_all_equals, "detect inconsistent gradients");
-#endif
     }
     printer.print_footer();
     

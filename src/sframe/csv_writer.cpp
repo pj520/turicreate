@@ -25,8 +25,15 @@ void csv_writer::csv_print_internal(std::string& out, const flexible_type& val) 
       out += std::string(val);
       break;
     case flex_type_enum::DATETIME:
-    case flex_type_enum::VECTOR:
       out += std::string(val);
+      break;
+    case flex_type_enum::VECTOR:
+      out += '[';
+      for(size_t i = 0;i < val.get<flex_vec>().size(); ++i) {
+        csv_print_internal(out, val.get<flex_vec>()[i]);
+        if (i + 1 < val.get<flex_vec>().size()) out += ',';
+      }
+      out += ']';
       break;
     case flex_type_enum::STRING:
       // do not print double quotes
@@ -190,8 +197,6 @@ void csv_writer::csv_print(std::ostream& out,
 
 void csv_writer::write(std::ostream& out,
                        const std::vector<flexible_type>& row) {
-  // if row size is 1, we cannot allow empty output
-  bool allow_empty_output = row.size() > 1;
   for (size_t i = 0;i < row.size(); ++i) {
     csv_print(out, row[i], row.size() > 1);
     // put a delimiter after every element except for the last element.

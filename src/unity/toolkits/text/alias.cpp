@@ -30,13 +30,6 @@ namespace turi {
 namespace text {
 
 /**
- * Returns the name of the model.
- */
-std::string alias_topic_model::name() {
-  return "alias_topic_model";
-}
-
-/**
  * Destructor. Make sure bad things don't happen
  */
 alias_topic_model::~alias_topic_model() {
@@ -362,9 +355,7 @@ std::map<std::string, size_t> alias_topic_model::sample_counts( v2::ml_data d, s
 
     // Load topic assignments for words in this block's documents
     auto doc_assignments = std::vector<std::vector<size_t>>(block_size);
-    size_t num_read = assignments_reader->read_rows(block_start,
-                                                    block_end,
-                                                    doc_assignments);
+    assignments_reader->read_rows(block_start, block_end, doc_assignments);
 
     // Load documents in this block
     auto d_block = d.slice(block_start, block_end);
@@ -571,7 +562,7 @@ size_t alias_topic_model::sample_topic(size_t d, size_t w, size_t s,
   // Choose whether to sample from sparse or dense portion
   double prob_sparse_sample = Q(0, w) / (Pdw + Q(0, w));
 
-  size_t t;
+  size_t t = static_cast<size_t>(-1);
   if (random::fast_uniform<double>(0, 1) < prob_sparse_sample) {
 
     // Use samples precomputed via Alias sampler
@@ -587,6 +578,11 @@ size_t alias_topic_model::sample_topic(size_t d, size_t w, size_t s,
     // Inverse CDF method on the sparse part
     double cutoff = random::fast_uniform<double>(0, Pdw);
     double current = 0.0;
+
+    if (doc_topic_counts.get_row(d).size() == 0) {
+      log_and_throw("At least one entry required in sample_topic()");
+    }
+
     for (const auto& kv : doc_topic_counts.get_row(d)) {
       t = kv.first;
       current += pd[t];
@@ -594,6 +590,10 @@ size_t alias_topic_model::sample_topic(size_t d, size_t w, size_t s,
         break;
       }
     }
+  }
+
+  if (t == static_cast<size_t>(-1)) {
+    log_and_throw("Invalid value in sample_topic()");
   }
 
   // Compute MH probability

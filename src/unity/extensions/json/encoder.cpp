@@ -33,7 +33,7 @@ static void _to_serializable(flexible_type& data, schema_t& schema, flex_float i
   if (std::isnan(input)) {
     data = "NaN";
   } else {
-    CHECK(std::isinf(input));
+    ASSERT_TRUE(std::isinf(input));
     if (input > 0) {
       data = "Infinity";
     } else {
@@ -164,6 +164,12 @@ static void _to_serializable(flexible_type& data, schema_t& schema, const flexib
     case flex_type_enum::UNDEFINED:
       data = FLEX_UNDEFINED;
       schema.insert(std::make_pair("type", JSON::types::UNDEFINED));
+      break;
+    case flex_type_enum::ND_VECTOR:
+      log_and_throw("Unsupported flex_type_enum case: ND_VECTOR");
+      break;
+    default:
+      log_and_throw("Unsupported flex_type_enum case");
       break;
   }
 }

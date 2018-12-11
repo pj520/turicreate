@@ -2,10 +2,8 @@
 //
 //  Use of this source code is governed by a BSD-3-clause license that can
 //  be found in the LICENSE.txt file or at https://opensource.org/licenses/BSD-3-Clause
-import Foundation
-import Cocoa
+
 import WebKit
-import CoreImage
 
 func log(_ message: String) {
     let withNewline = String(format: "%@\n", message)
@@ -48,7 +46,7 @@ class VegaContainer: NSObject, WKScriptMessageHandler {
         
         // load app bundle
         let appBundle = Bundle.main
-        let htmlPath = appBundle.url(forResource: "vega_viz", withExtension: "html")
+        let htmlPath = appBundle.url(forResource: "index", withExtension: "html", subdirectory: "build")
         self.view.loadFileURL(htmlPath!, allowingReadAccessTo: appBundle.bundleURL)
         self.view.configuration.userContentController.add(self, name: "scriptHandler")
     }
@@ -147,7 +145,21 @@ class VegaContainer: NSObject, WKScriptMessageHandler {
             
             self.pipe!.writePipe(method: "get_rows", start: start_num, end: end_num)
             break
+        
+        case "getAccordion":
+            guard let column_name = messageBody["column"] as? String else {
+                assert(false, "column in getAccordion")
+                return
+            }
             
+            guard let index_num = messageBody["index"] as? String else {
+                assert(false, "index in getAccordion")
+                return
+            }
+            
+            self.pipe!.writeAccordion(method: "get_accordian", column_name: column_name, index_val: index_num)
+            
+            break
         default:
             assert(false)
             break
@@ -157,12 +169,26 @@ class VegaContainer: NSObject, WKScriptMessageHandler {
     public func set_table(table_spec: [String: Any]) {
         self.data_spec.removeAll()
         self.table_spec = table_spec
+        
+        DispatchQueue.main.async {
+            SharedData.shared.save_image?.isHidden = true
+            SharedData.shared.save_vega?.isHidden = true
+            SharedData.shared.print_vega?.isHidden = true
+            SharedData.shared.page_setup?.isHidden = true
+        }
     }
     
     public func set_vega(vega_spec: [String: Any]) {
         // TODO: write function to check valid vega spec
         self.data_spec.removeAll()
         self.vega_spec = vega_spec
+        
+        DispatchQueue.main.async {
+            SharedData.shared.save_image?.isHidden = false
+            SharedData.shared.save_vega?.isHidden = false
+            SharedData.shared.print_vega?.isHidden = false
+            SharedData.shared.page_setup?.isHidden = false
+        }
     }
     
     public func add_data(data_spec: [String: Any]) {
@@ -174,7 +200,24 @@ class VegaContainer: NSObject, WKScriptMessageHandler {
         // TODO: write function to check valid image spec
         self.image_spec.append(image_spec)
     }
-
+    
+    public func add_accordion(accordion_spec: [String: Any]){
+        DispatchQueue.main.async {
+            
+            let raw_data = ["data": accordion_spec] as [String : Any]
+            let arrData = try! JSONSerialization.data(withJSONObject: raw_data)
+            let json_string = String(data: arrData, encoding: .utf8)!
+            let updateJS = String(format: "setAccordionData(%@);", json_string)
+            
+            self.view.evaluateJavaScript(updateJS, completionHandler: {(value, err) in
+                if err != nil {
+                    // if we got here, we got a JS error
+                    log(err.debugDescription)
+                    assert(false)
+                }
+            });
+        }
+    }
     
     public func save_data() {
         
@@ -186,7 +229,7 @@ class VegaContainer: NSObject, WKScriptMessageHandler {
             if result == NSFileHandlingPanelOKButton {
                 let exportedFileURL = savePanel.url?.appendingPathExtension("csv")
                 
-                let jsString = String(format: "getData();");
+                let jsString = "getData();";
                 
                 self.view.evaluateJavaScript(jsString, completionHandler: { (value , err) in
                     
@@ -221,13 +264,14 @@ class VegaContainer: NSObject, WKScriptMessageHandler {
         
         // open save panel
         let savePanel = NSSavePanel()
+        savePanel.allowedFileTypes = ["json"];
         
         // start the saving of the json
         savePanel.begin { (result: Int) -> Void in
             if result == NSFileHandlingPanelOKButton {
-                let exportedFileURL = savePanel.url?.appendingPathExtension("json")
+                let exportedFileURL = savePanel.url
                 
-                let jsString = String(format: "getSpec();");
+                let jsString = "getSpec();";
                 
                 self.view.evaluateJavaScript(jsString, completionHandler: { (value , err) in
                     
@@ -250,12 +294,13 @@ class VegaContainer: NSObject, WKScriptMessageHandler {
         
         // open save panel
         let savePanel = NSSavePanel()
+        savePanel.allowedFileTypes = ["png"];
         
         // start the saving of the image
         savePanel.begin { (result: Int) -> Void in
             if result == NSFileHandlingPanelOKButton {
-                let exportedFileURL = savePanel.url?.appendingPathExtension("png")
-                let jsString = String(format: "export_png();");
+                let exportedFileURL = savePanel.url
+                let jsString = "export_png();";
                 
                 // call function to get images
                 self.view.evaluateJavaScript(jsString, completionHandler: { (value , err) in
@@ -270,6 +315,22 @@ class VegaContainer: NSObject, WKScriptMessageHandler {
                 });
             }
         }
+    }
+    
+    public func get_image(completion: @escaping (NSImage) -> Void) {
+        let jsString = "export_png();";
+        self.view.evaluateJavaScript(jsString, completionHandler: { (value , err) in
+            
+            if(err != nil){
+                return
+            }
+            
+            let s = String(describing: value!)
+            let dataDecoded = Data(base64Encoded: s, options: Data.Base64DecodingOptions(rawValue: NSData.Base64DecodingOptions.RawValue(0)))!
+            let image = NSImage(data: dataDecoded)
+            
+            completion(image!);
+        });
     }
 
     
@@ -322,6 +383,7 @@ class VegaContainer: NSObject, WKScriptMessageHandler {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: self.send_data)
                 return
             }
+            
             
             let updateJS: String
             if self.data_spec.count != 0 {

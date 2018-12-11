@@ -1,6 +1,5 @@
 project(Turi)
 
-
 # We require the most recent version of cmake and automatically
 # install the correct version when using the cmake lists
 cmake_minimum_required(VERSION 2.8.3)
@@ -16,6 +15,10 @@ cmake_policy(SET CMP0046 OLD)
 cmake_policy(SET CMP0042 NEW)
 endif()
 
+# Generate a compilation database for use with automated tools like IDE/editor
+# plugins. See http://clang.llvm.org/docs/JSONCompilationDatabase.html
+set( CMAKE_EXPORT_COMPILE_COMMANDS ON )
+
 # Determine where additional Turi specific cmake modules are
 # defined
 set(DEPS_CMAKE ${CMAKE_SOURCE_DIR}/deps/cmake)
@@ -30,26 +33,26 @@ if(${TC_BUILD_PYTHON})
   if(NOT EXISTS ${CMAKE_SOURCE_DIR}/deps/env/)
     message(FATAL, "Internal error: Python toolchain expected; not present.")
   endif()
-  
-  if (PYTHON_VERSION)
-        set(PYTHON_VERSION ${PYTHON_VERSION} CACHE STRING "Target Python Version")
-  else()
-        set(PYTHON_VERSION "python2.7")
-  endif()
 
   include(UseCython)
-
+  add_definitions(-DTC_HAS_PYTHON)
+  add_definitions(-DTC_BUILD_VISUALIZATION_CLIENT)
 else()
   message("Skipping python libraries.")
 endif()
 
+if(NOT APPLE)
+  include(FindLAPACK)
+  if(NOT ${LAPACK_FOUND})
+    message(FATAL_ERROR "lapack is not installed")
+  endif()
+endif()
 
 include(CheckLibraryExists)
 include(CheckFunctionExists)
 include(ExternalProject)
 include(CheckCXXSourceCompiles)
-
-
+include(CheckCXXCompilerFlag)
 
 #**************************************************************************/
 #*                                                                        */
@@ -72,6 +75,53 @@ endif()
 #*                       Platform Specific Stuff                          *
 #*                                                                        *
 #**************************************************************************
+if(APPLE)
+  if(TC_BUILD_IOS)
+    SET(TC_BASE_SDK iphoneos)
+    SET(COMPILER_FLAGS "${COMPILER_FLAGS} -miphoneos-version-min=12.0 -Wno-c++11-narrowing")
+  else()
+    SET(TC_BASE_SDK macosx)
+
+    # Modify COMPILER_FLAGS instead of setting CMAKE_OSX_DEPLOYMENT_TARGET so
+    # that this setting propagates to external dependencies.
+    SET(COMPILER_FLAGS "${COMPILER_FLAGS} -mmacosx-version-min=10.12")
+  endif()
+
+  EXEC_PROGRAM(xcrun ARGS --sdk ${TC_BASE_SDK} --show-sdk-version OUTPUT_VARIABLE TC_BASE_SDK_VERSION RETURN_VALUE _xcrun_ret)
+  if(NOT ${_xcrun_ret} EQUAL 0)
+    message(ERROR, "xcrun command failed with return code ${_xcrun_ret}.")
+  endif()
+
+  EXEC_PROGRAM(xcrun ARGS --sdk ${TC_BASE_SDK} --show-sdk-path OUTPUT_VARIABLE TC_BASE_SDK_PATH RETURN_VALUE _xcrun_ret)
+  if(NOT ${_xcrun_ret} EQUAL 0)
+    message(ERROR, "xcrun command failed with return code ${_xcrun_ret}.")
+  endif()
+
+  SET(CMAKE_OSX_SYSROOT "${TC_BASE_SDK_PATH}")
+  SET(COMPILER_FLAGS "${COMPILER_FLAGS} -isysroot ${TC_BASE_SDK_PATH}")
+
+  # Core ML is only present on macOS 10.13 or higher.
+  # Logic reversed to get around what seems to be a CMake bug.
+  if(NOT TC_BASE_SDK_VERSION VERSION_LESS 10.13)
+    add_definitions(-DHAS_CORE_ML)
+    set(HAS_CORE_ML TRUE)
+  endif()
+
+  # Core ML only supports batch inference on macOS 10.14 or higher
+  # Logic reversed to get around what seems to be a CMake bug.
+  if(NOT TC_BASE_SDK_VERSION VERSION_LESS 10.14)
+    add_definitions(-DHAS_CORE_ML_BATCH_INFERENCE)
+
+    # GPU-accelerated training with MPS backend requires macOS 10.14 or higher
+    add_definitions(-DHAS_MPS)
+    set(HAS_MPS TRUE)
+
+    # CoreML MLCustomModel requires macOS 10.14 or higher
+    set(HAS_MLCUSTOMMODEL TRUE)
+  endif()
+endif()
+
+
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
   set(CLANG false)
 elseif(WIN32)
@@ -127,10 +177,29 @@ if(WIN32)
   add_definitions(-DWINVER=0x0600)
   add_definitions(-D_WIN32_WINNT=0x0600)
 endif()
+
+if(TC_BUILD_IOS)
+  add_definitions(-DTC_BUILD_IOS)
+  add_definitions(-DTC_NO_CURL)
+  set(TC_ENABLE_REMOTEFS 0)
+endif()
+
+if(${TC_ENABLE_REMOTEFS})
+  add_definitions(-DTC_ENABLE_REMOTEFS)
+  add_definitions(-DCURL_STATICLIB)
+else()
+  add_definitions(-DTC_NO_CURL)
+endif()
+
 add_definitions(-DCURL_STATICLIB)
 add_definitions(-DIN_TURI_SOURCE_TREE)
 add_definitions(-DFUSION_MAX_VECTOR_SIZE=20)
 add_definitions(-DBOOST_SPIRIT_THREAD_SAFE)
+
+# These determine the maximum number of arguments for extension functions
+add_definitions(-DBOOST_BOOST_FUSION_INVOKE_MAX_ARITY=12)
+add_definitions(-DBOOST_FUSION_INVOKE_PROCEDURE_MAX_ARITY=12)
+add_definitions(-DBOOST_FUSION_INVOKE_FUNCTION_OBJECT_MAX_ARITY=12)
 
 #**************************************************************************/
 #*                                                                        */
@@ -154,15 +223,37 @@ message(WARNING "OpenMP Libraries were not found")
 #*                                                                        */
 #**************************************************************************/
 if (CLANG)
-set(CPP11_FLAGS "-std=c++11 -stdlib=libc++ -Wno-deprecated-register -Wno-enum-compare -Wno-conversion-null -Wno-constant-logical-operand -Wno-parentheses-equality -ftemplate-depth=900" CACHE STRING "C++11 enabling flags")
+
+  set(_cpp11_optional_flags "")
+
+  check_cxx_compiler_flag("-Wno-stdlibcxx-not-found" __no_stdlibcxx_not_found)
+  if(${__no_stdlibcxx_not_found})
+    set(_cpp11_optional_flags "${_cpp11_optional_flags} -Wno-stdlibcxx-not-found")
+  endif()
+
+  set(CPP11_FLAGS "-std=c++11 -stdlib=libc++ -Wno-deprecated-register -Wno-enum-compare -Wno-conversion-null -Wno-constant-logical-operand -Wno-parentheses-equality -ftemplate-depth=900 ${_cpp11_optional_flags}")
+
+  set(WERROR_FLAGS "-Werror")
 else()
-set(CPP11_FLAGS "-std=c++11 -Wno-enum-compare -Wno-conversion-null -ftemplate-depth=900" CACHE STRING "C++11 enabling flags")
+  # non-clang
+  set(CPP11_FLAGS "-std=c++11 -Wno-enum-compare -Wno-conversion-null -ftemplate-depth=900")
+  set(WERROR_FLAGS "-Werror")
 endif()
+
 # Shared compiler flags used by all builds (debug, profile, release)
 # Allow COMPILER_FLAGS to be used as options from the ./configure without
 # forcing all the other options I want to add to be lost
-set(C_REAL_COMPILER_FLAGS "-Wall -pthread -g ${COMPILER_FLAGS}" CACHE STRING "common compiler options")
-set(CPP_REAL_COMPILER_FLAGS "-Wall -pthread -g ${CPP11_FLAGS} ${COMPILER_FLAGS}" CACHE STRING "common compiler options")
+set(C_REAL_COMPILER_FLAGS "-Wall -g ${COMPILER_FLAGS}")
+set(CPP_REAL_COMPILER_FLAGS "-Wall -g ${CPP11_FLAGS} ${COMPILER_FLAGS}")
+
+if (CLANG)
+  # clang 9.0.0 and earlier will warn (error with -Werror) on unused -pthread during linking
+  # so adding only to compile options is what we need.
+  add_compile_options(-pthread)
+else()
+  set(C_REAL_COMPILER_FLAGS "${C_REAL_COMPILER_FLAGS} -pthread")
+  set(CPP_REAL_COMPILER_FLAGS "${CPP_REAL_COMPILER_FLAGS} -pthread")
+endif()
 
 # Disable address space randomization for OSX lion and above
 if (APPLE)
@@ -213,19 +304,27 @@ endif()
 
 
 
-include(CheckCXXCompilerFlag)
-if (NOT MARCH)
+if (MARCH)
+  set(ARCH_FLAG "-march=${MARCH}")
+elseif (ARCH)
+  set(ARCH_FLAG "-arch ${ARCH}")
+else()
   set(MARCH "x86-64")
+  set(ARCH_FLAG "-march=${MARCH}")
 endif()
 
 # check if MTUNE is set
 if (NOT MTUNE)
   #set to native if supported
   check_cxx_compiler_flag(-mtune=native HAS_MTUNE_NATIVE)
+  check_cxx_compiler_flag(-mtune=${MARCH} HAS_MTUNE_MARCH)
+  check_cxx_compiler_flag(-mtune=${ARCH} HAS_MTUNE_ARCH)
   if(HAS_MTUNE_NATIVE)
-    set(MTUNE "native")
-  else()
-    set(MTUNE "x86-64")
+    set(MTUNE "-mtune=native")
+  elseif(HAS_MTUNE_MARCH)
+    set(MTUNE "-mtune=${MARCH}")
+  elseif(HAS_MTUNE_ARCH)
+    set(MTUNE "-mtune=${ARCH}")
   endif()
 endif()
 
@@ -263,36 +362,46 @@ if(HAS_FTRACER)
         set(EXTRA_OPTIMIZATION_FLAGS "${EXTRA_OPTIMIZATION_FLAGS} -ftracer")
 endif()
 
-set(DEBUG_OPTIMIZATION_LEVEL -O0)
-set(RELEASE_OPTIMIZATION_LEVEL -O3)
+
+
+if(${DEBUG_OPT_FOR_SIZE})
+  set(DEBUG_OPTIMIZATION_FLAGS -Os)
+else()
+  set(DEBUG_OPTIMIZATION_FLAGS "-O0 -fno-inline")
+endif()
+
+if(${RELEASE_OPT_FOR_SIZE})
+  set(RELEASE_OPTIMIZATION_FLAGS "-Os -DNDEBUG")
+else()
+  set(RELEASE_OPTIMIZATION_FLAGS "-O3 -DNDEBUG")
+endif()
 
 if(WIN32)
         # on windows due to some string table limitations + template
         # insanities, on -O0 we run out of string table entries or something
         # like that.
-        set(DEBUG_OPTIMIZATION_LEVEL -O2)
+        set(DEBUG_OPTIMIZATION_FLAGS -O2)
 endif()
 
-# Set mac os minimum version
-# if (APPLE)
-#  set(PLATFORM_FLAGS "-mmacosx-version-min=10.8")
-#else()
-#  set(PLATFORM_FLAGS "")
-#endif()
-
 # Set the debug flags
+set(EXTERNAL_CMAKE_C_FLAGS_DEBUG
+  "${DEBUG_OPTIMIZATION_FLAGS} -Wno-attributes ${ARCH_FLAG} -Winit-self  ${PROFILING_FLAGS} ${C_REAL_COMPILER_FLAGS} -fno-inline ${ALTERNATE_LINKER} -DHAVE_PTHREAD=1"
+  CACHE STRING "compiler options" FORCE)
 set(CMAKE_C_FLAGS_DEBUG
-  "${DEBUG_OPTIMIZATION_LEVEL} ${PLATFORM_FLAGS} -Wno-attributes -march=${MARCH} -Winit-self ${PROFILING_FLAGS} ${C_REAL_COMPILER_FLAGS} -fno-inline ${ALTERNATE_LINKER} -DHAVE_PTHREAD=1"
+  "${EXTERNAL_CMAKE_C_FLAGS_DEBUG} ${WERROR_FLAGS} -Wuninitialized "
+  CACHE STRING "compiler options" FORCE)
+set(EXTERNAL_CMAKE_CXX_FLAGS_DEBUG
+  "${DEBUG_OPTIMIZATION_FLAGS} ${DISABLE_WARNING_FLAGS} -Wno-attributes ${ARCH_FLAG} -Winit-self ${PROFILING_FLAGS} ${CPP_REAL_COMPILER_FLAGS} ${INT128_FLAGS} ${ALTERNATE_LINKER} -fno-inline -DHAVE_PTHREAD=1"
   CACHE STRING "compiler options" FORCE)
 set(CMAKE_CXX_FLAGS_DEBUG
-  "${DEBUG_OPTIMIZATION_LEVEL} ${PLATFORM_FLAGS} ${DISABLE_WARNING_FLAGS} -Wno-attributes -march=${MARCH} -Winit-self ${PROFILING_FLAGS} ${CPP_REAL_COMPILER_FLAGS} ${INT128_FLAGS} ${ALTERNATE_LINKER} -fno-inline -DHAVE_PTHREAD=1"
+  "${EXTERNAL_CMAKE_CXX_FLAGS_DEBUG} ${WERROR_FLAGS} -Wuninitialized"
   CACHE STRING "compiler options" FORCE)
 
 set(CMAKE_C_FLAGS_RELEASE
-  "${RELEASE_OPTIMIZATION_LEVEL} ${PLATFORM_FLAGS} -Wno-attributes -march=${MARCH} -mtune=${MTUNE} ${PROFILING_FLAGS} ${C_REAL_COMPILER_FLAGS} -DNDEBUG ${ALTERNATE_LINKER} -DHAVE_PTHREAD=1 -DARMA_NO_DEBUG"
+  "${RELEASE_OPTIMIZATION_FLAGS} -Wno-attributes ${ARCH_FLAG} ${MTUNE} ${PROFILING_FLAGS} ${C_REAL_COMPILER_FLAGS} ${WERROR_FLAGS} -DNDEBUG ${ALTERNATE_LINKER} -DHAVE_PTHREAD=1 -DARMA_NO_DEBUG"
   CACHE STRING "compiler options" FORCE)
 set(CMAKE_CXX_FLAGS_RELEASE
-  "${RELEASE_OPTIMIZATION_LEVEL} ${PLATFORM_FLAGS} ${EXTRA_OPTIMIZATION_FLAGS} ${DISABLE_WARNING_FLAGS} ${PROFILING_FLAGS} -Wno-attributes -march=${MARCH} -mtune=${MTUNE} ${CPP_REAL_COMPILER_FLAGS} ${INT128_FLAGS} ${ALTERNATE_LINKER} -DNDEBUG -DHAVE_PTHREAD=1 -DARMA_NO_DEBUG"
+  "${RELEASE_OPTIMIZATION_FLAGS} ${EXTRA_OPTIMIZATION_FLAGS} ${DISABLE_WARNING_FLAGS} ${PROFILING_FLAGS} -Wno-attributes ${ARCH_FLAG} ${MTUNE} ${CPP_REAL_COMPILER_FLAGS} ${WERROR_FLAGS} ${INT128_FLAGS} ${ALTERNATE_LINKER} -DNDEBUG -DHAVE_PTHREAD=1 -DARMA_NO_DEBUG"
   CACHE STRING "compiler options" FORCE)
 
 
@@ -301,6 +410,7 @@ set(CMAKE_CXX_FLAGS_RELEASE
 #*       Some C++ Implementation Oddities between libc++ and stdc++       */
 #*                                                                        */
 #**************************************************************************/
+set(CMAKE_REQUIRED_FLAGS ${CMAKE_CXX_FLAGS_DEBUG})
 check_cxx_source_compiles("#include <ios>
                            #include <system_error>
                            int main(int argc, char** argv) {
@@ -313,6 +423,24 @@ if(COMPILER_HAS_IOS_BASE_FAILURE_WITH_ERROR_CODE)
 else()
   message(STATUS "Compiler does not support ios_base::failure(str, error_code)")
 endif()
+
+check_cxx_source_compiles("#include <ios>
+                           #include <system_error>
+                                                    
+                           class io_error : public std::ios_base::failure {
+                             public:   /* The noexcept here is different between C++ 17 and C++ 11. */
+                              const char *what() const noexcept { return \"\"; } 
+                           };
+                           int main(int argc, char** argv) { return 0; }" 
+                          COMPILER_HAS_NOEXCEPT_WHAT_ON_EXCEPTIONS)
+
+if(COMPILER_HAS_NOEXCEPT_WHAT_ON_EXCEPTIONS)
+  message(STATUS "Compiler supports noexcept on what() with ios_base::failure.")
+  add_definitions(-DCOMPILER_HAS_NOEXCEPT_WHAT_ON_EXCEPTIONS)
+else()
+  message(STATUS "Compiler uses throw() on what() with ios_base::failure.")
+endif()
+
 
 #**************************************************************************/
 #*                                                                        */
@@ -361,21 +489,6 @@ include(copy_file)
 include(CMakeParseArguments)
 include(eval)
 
-add_custom_target(external_dependencies)
-
-include(ExternalProject)
-file(GLOB packages "${DEPS_CMAKE}/ExternalProject*.cmake")
-foreach(package ${packages})
-        message(STATUS "We found local package: ${package}")
-        get_filename_component(packagename "${package}" NAME_WE)
-        #package is of the form ExternalProjectXXX"
-        include(${package})
-        STRING(SUBSTRING "${packagename}" 15 -1 depname)
-        message(STATUS "We found local package definition: ${depname}")
-        string(TOLOWER ${depname} depname)
-        set(package_${depname} requires_${depname} CACHE STRING "Package map")
-        add_dependencies(external_dependencies ex_${depname})
-endforeach()
 
 # This is an internal function and should not be used
 # Usage:
@@ -484,7 +597,9 @@ endmacro()
 macro(make_library NAME)
   set(options SHARED EXTERNAL_VISIBILITY SHARED_ALL_DEFINED DEAD_STRIP)
   set(one_value_args COMPILE_FLAGS OUTPUT_NAME EXPORT_LINUX_MAP_FILE EXPORT_OSX_MAP_FILE)
-  set(multi_value_args SOURCES REQUIRES MAC_REQUIRES LINUX_REQUIRES)
+  set(multi_value_args
+    SOURCES REQUIRES MAC_REQUIRES LINUX_REQUIRES
+    COMPILE_FLAGS_EXTRA COMPILE_FLAGS_EXTRA_CLANG COMPILE_FLAGS_EXTRA_GCC)
  CMAKE_PARSE_ARGUMENTS(make_library "${options}" "${one_value_args}" "${multi_value_args}" ${ARGN})
   if(NOT make_library_SOURCES)
     MESSAGE(FATAL_ERROR "make_library call with no sources")
@@ -515,14 +630,30 @@ macro(make_library NAME)
           set_target_properties(${NAME} PROPERTIES OUTPUT_NAME ${make_library_OUTPUT_NAME})
   endif()
 
+  if (make_library_COMPILE_FLAGS_EXTRA)
+    target_compile_options(${NAME} PRIVATE ${make_library_COMPILE_FLAGS_EXTRA})
+  endif()
+
+  if (CLANG)
+    if (make_library_COMPILE_FLAGS_EXTRA_CLANG)
+      target_compile_options(${NAME} PRIVATE ${make_library_COMPILE_FLAGS_EXTRA_CLANG})
+    endif()
+  endif()
+
+  if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
+    if (make_library_COMPILE_FLAGS_EXTRA_GCC)
+      target_compile_options(${NAME} PRIVATE ${make_library_COMPILE_FLAGS_EXTRA_GCC})
+    endif()
+  endif()
+
   if (${make_library_EXTERNAL_VISIBILITY})
     # do nothing
     message(STATUS "External Visibility: " ${NAME})
     target_compile_options(${NAME} PRIVATE "-fvisibility=default")
-    target_compile_options(${NAME} PRIVATE "-fvisibility-inlines-hidden")
+    target_compile_options(${NAME} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-fvisibility-inlines-hidden>)
   else()
     target_compile_options(${NAME} PRIVATE "-fvisibility=hidden")
-    target_compile_options(${NAME} PRIVATE "-fvisibility-inlines-hidden")
+    target_compile_options(${NAME} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-fvisibility-inlines-hidden>)
   endif()
 
   if(NOT CLANG)
@@ -532,17 +663,17 @@ macro(make_library NAME)
   endif()
 
   if(APPLE)
-  if(make_library_EXPORT_OSX_MAP_FILE) 
+  if(make_library_EXPORT_OSX_MAP_FILE)
     set_property(TARGET ${NAME} APPEND PROPERTY LINK_DEPENDS "${make_library_EXPORT_OSX_MAP_FILE}")
     set_property(TARGET ${NAME} APPEND_STRING PROPERTY LINK_FLAGS " -Wl,-exported_symbols_list,${make_library_EXPORT_OSX_MAP_FILE} ")
   endif()
 
   if(make_library_DEAD_STRIP)
     set_property(TARGET ${NAME} APPEND_STRING PROPERTY LINK_FLAGS " -Wl,-dead_strip")
-  endif() 
+  endif()
 
 else()
-  if(make_library_EXPORT_LINUX_MAP_FILE) 
+  if(make_library_EXPORT_LINUX_MAP_FILE)
     set_property(TARGET ${NAME} APPEND PROPERTY LINK_DEPENDS "${make_library_EXPORT_LINUX_MAP_FILE}")
     set_property(TARGET ${NAME} APPEND_STRING PROPERTY LINK_FLAGS " -Wl,--version-script=${make_library_EXPORT_LINUX_MAP_FILE} ")
   endif()
@@ -638,7 +769,9 @@ endmacro()
 # when possible.
 function (make_executable NAME)
   set(one_value_args COMPILE_FLAGS OUTPUT_NAME)
-  set(multi_value_args SOURCES REQUIRES MAC_REQUIRES LINUX_REQUIRES)
+  set(multi_value_args
+    SOURCES REQUIRES MAC_REQUIRES LINUX_REQUIRES
+    COMPILE_FLAGS_EXTRA COMPILE_FLAGS_EXTRA_CLANG COMPILE_FLAGS_EXTRA_GCC)
   CMAKE_PARSE_ARGUMENTS(make_library "" "${one_value_args}" "${multi_value_args}" ${ARGN})
   if(NOT make_library_SOURCES)
     MESSAGE(FATAL_ERROR "make_library call with no sources")
@@ -655,6 +788,23 @@ function (make_executable NAME)
   endif()
 
   add_executable(${NAME} ${make_library_SOURCES})
+
+  if (make_library_COMPILE_FLAGS_EXTRA)
+    target_compile_options(${NAME} PRIVATE ${make_library_COMPILE_FLAGS_EXTRA})
+  endif()
+
+  if (CLANG)
+    if (make_library_COMPILE_FLAGS_EXTRA_CLANG)
+      target_compile_options(${NAME} PRIVATE ${make_library_COMPILE_FLAGS_EXTRA_CLANG})
+    endif()
+  endif()
+
+  if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
+    if (make_library_COMPILE_FLAGS_EXTRA_GCC)
+      target_compile_options(${NAME} PRIVATE ${make_library_COMPILE_FLAGS_EXTRA_GCC})
+    endif()
+  endif()
+
   make_target_impl("${NAME}" "${make_library_COMPILE_FLAGS}"
     "${make_library_REQUIRES}" FALSE FALSE FALSE)
   if (make_library_OUTPUT_NAME)
@@ -686,7 +836,6 @@ function (make_boost_test NAME)
 
   add_test(${NAME} ${NAME}test)
 endfunction()
-
 
 
 # This is an external function
@@ -724,29 +873,47 @@ macro (make_copy_target NAME)
   CMAKE_PARSE_ARGUMENTS(copy "" "" "${multi_value_args}" ${ARGN})
   ADD_CUSTOM_TARGET(${NAME} ALL)
   set(all_target_locations)
-  foreach(binary ${copy_FILES})
-          # Switched away from cmake -E commands because they don't work right
-          # on Windows. Also Windows doesn't overwrite when copying by default
-          if(WIN32)
+  set(RSYNC_SOURCES ${copy_FILES} ${copy_DIRECTORIES})
+  find_program(RSYNC rsync)
+  if("${RSYNC}" STREQUAL "")
+    # No rsync present; copy the old fashioned way with multiple cp commands
+    foreach(binary ${copy_FILES})
+            # Switched away from cmake -E commands because they don't work right
+            # on Windows. Also Windows doesn't overwrite when copying by default
+            if(WIN32)
+              add_custom_command(TARGET ${NAME} POST_BUILD
+                COMMENT "remove old ${binary}"
+                COMMAND rm -f ${CMAKE_CURRENT_BINARY_DIR}/`basename ${binary}` )
+            endif()
             add_custom_command(TARGET ${NAME} POST_BUILD
-              COMMENT "remove old ${binary}"
-              COMMAND rm -f ${CMAKE_CURRENT_BINARY_DIR}/`basename ${binary}` )
-          endif()
-          add_custom_command(TARGET ${NAME} POST_BUILD
-                  COMMENT "copy ${binary}"
-                  COMMAND cp ${binary} ${CMAKE_CURRENT_BINARY_DIR})
+                    COMMENT "copy ${binary}"
+                    COMMAND cp ${binary} ${CMAKE_CURRENT_BINARY_DIR})
+    endforeach()
+
+    foreach(binary ${copy_DIRECTORIES})
+            # Switched away from cmake -E commands because they don't work right
+            # on Windows. Also Windows doesn't overwrite when copying by default
+            add_custom_command(TARGET ${NAME} POST_BUILD
+                    COMMENT "remove old ${binary}"
+                    COMMAND rm -rf ${CMAKE_CURRENT_BINARY_DIR}/`basename ${binary}` )
+            add_custom_command(TARGET ${NAME} POST_BUILD
+                    COMMENT "copy ${binary}"
+                    COMMAND cp -r ${binary} ${CMAKE_CURRENT_BINARY_DIR})
+    endforeach()
+  else()
+    if((NOT "${copy_FILES}" STREQUAL "") OR (NOT "${copy_DIRECTORIES}" STREQUAL ""))
+      add_custom_command(TARGET ${NAME} POST_BUILD
+        COMMENT "copying ${NAME}"
+        COMMAND ${RSYNC} -a ${RSYNC_SOURCES} ${CMAKE_CURRENT_BINARY_DIR}
+      )
+    endif()
+  endif()
+
+  # Make sure the files and directories get included in all_target_locations
+  foreach(binary ${copy_FILES})
           list(APPEND all_target_locations ${binary})
   endforeach()
-
   foreach(binary ${copy_DIRECTORIES})
-          # Switched away from cmake -E commands because they don't work right
-          # on Windows. Also Windows doesn't overwrite when copying by default
-          add_custom_command(TARGET ${NAME} POST_BUILD
-                  COMMENT "remove old ${binary}"
-                  COMMAND rm -rf ${CMAKE_CURRENT_BINARY_DIR}/`basename ${binary}` )
-          add_custom_command(TARGET ${NAME} POST_BUILD
-                  COMMENT "copy ${binary}"
-                  COMMAND cp -r ${binary} ${CMAKE_CURRENT_BINARY_DIR})
           list(APPEND all_target_locations ${binary})
   endforeach()
 
@@ -764,15 +931,17 @@ macro (make_copy_target NAME)
                   foreach(location ${CUSTOM_LOCATION})
                           add_custom_command(TARGET ${NAME} POST_BUILD
                                   COMMENT "copy ${location}"
+                                  DEPENDS ${target}
                                   COMMAND ${CMAKE_COMMAND} -E
-                                  copy ${location} ${CMAKE_CURRENT_BINARY_DIR})
+                                  copy_if_different ${location} ${CMAKE_CURRENT_BINARY_DIR})
                           list(APPEND all_target_locations ${location})
                   endforeach()
           else()
                   add_custom_command(TARGET ${NAME} POST_BUILD
                           COMMENT "copying target of ${target}"
+                          DEPENDS ${target}
                           COMMAND ${CMAKE_COMMAND} -E
-                          copy $<TARGET_FILE:${target}> ${CMAKE_CURRENT_BINARY_DIR})
+                          copy_if_different $<TARGET_FILE:${target}> ${CMAKE_CURRENT_BINARY_DIR})
                   list(APPEND all_target_locations $<TARGET_FILE:${target}>)
           endif()
   endforeach()
@@ -783,12 +952,34 @@ endmacro()
 include(SharedLibraryFromStatic)
 include(MergeStaticLibraries)
 
+add_custom_target(external_dependencies)
 
-include_directories(SYSTEM src)
+include(ExternalProject)
+file(GLOB packages "${DEPS_CMAKE}/ExternalProject*.cmake")
+foreach(package ${packages})
+        message(STATUS "We found local package: ${package}")
+        get_filename_component(packagename "${package}" NAME_WE)
+        #package is of the form ExternalProjectXXX"
+        include(${package})
+        STRING(SUBSTRING "${packagename}" 15 -1 depname)
+        message(STATUS "We found local package definition: ${depname}")
+        string(TOLOWER ${depname} depname)
+        set(package_${depname} requires_${depname} CACHE STRING "Package map")
+        add_dependencies(external_dependencies ex_${depname})
+endforeach()
+
+include_directories(src)
 include_directories(SYSTEM src/external)
-include_directories(SYSTEM src/old)
-include_directories(SYSTEM src/platform)
+include_directories(SYSTEM src/external/google)
+include_directories(src/platform)
 
+if(EXISTS ${CMAKE_SOURCE_DIR}/extensions)
+  include_directories(SYSTEM extensions)
+  add_subdirectory(extensions)
+endif()
+
+# for build-time generated source code
+include_directories(SYSTEM ${CMAKE_BINARY_DIR}/src)
 
 if(EXISTS ${CMAKE_SOURCE_DIR}/subtree)
   include_directories(SYSTEM subtree)
@@ -797,15 +988,3 @@ endif()
 
 add_subdirectory(src)
 add_subdirectory(test)
-
-
-#/**************************************************************************/
-#/*                                                                        */
-#/*                         Python UnitTest Target                         */
-#/*                                                                        */
-#/**************************************************************************/
-ADD_CUSTOM_TARGET(nosetest
-  DEPENDS binaries python_source cython_targets
-  COMMAND "./run_python_test.sh" ${CMAKE_BUILD_TYPE}
-  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/scripts
-  )

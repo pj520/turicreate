@@ -13,6 +13,7 @@ from __future__ import absolute_import as _
 from turicreate.toolkits._model import _get_default_options_wrapper
 import turicreate as _turicreate
 from turicreate.toolkits.recommender.util import _Recommender
+from turicreate.cython.cy_server import QuietProgress
 
 def create(observation_data,
            user_id='user_id', item_id='item_id', target=None,
@@ -185,25 +186,19 @@ def create(observation_data,
 
     """
 
-    method = 'factorization_recommender'
-
-    opts = {'model_name': method}
-    response = _turicreate.toolkits._main.run("recsys_init", opts)
-    model_proxy = response['model']
+    opts = {}
+    model_proxy = _turicreate.extensions.factorization_recommender()
+    model_proxy.init_options(opts)
 
     if user_data is None:
         user_data = _turicreate.SFrame()
     if item_data is None:
         item_data = _turicreate.SFrame()
+    nearest_items = _turicreate.SFrame()
 
-    opts = {'dataset'                 : observation_data,
-            'user_id'                 : user_id,
+    opts = {'user_id'                 : user_id,
             'item_id'                 : item_id,
             'target'                  : target,
-            'user_data'               : user_data,
-            'item_data'               : item_data,
-            'nearest_items'           : _turicreate.SFrame(),
-            'model'                   : model_proxy,
             'random_seed'             : random_seed,
             'num_factors'             : num_factors,
             'regularization'          : regularization,
@@ -215,7 +210,6 @@ def create(observation_data,
             'side_data_factorization' : side_data_factorization,
 
         # has no effect in the c++ end; ignore.
-        # 'verbose'                 : verbose,
 
             'nmf'                     : nmf}
 
@@ -231,9 +225,12 @@ def create(observation_data,
 
         opts.update(kwargs)
 
-    response = _turicreate.toolkits._main.run('recsys_train', opts, verbose)
+    extra_data = {"nearest_items" : _turicreate.SFrame()}
 
-    return FactorizationRecommender(response['model'])
+    with QuietProgress(verbose):
+        model_proxy.train(observation_data, user_data, item_data, opts, extra_data)
+
+    return FactorizationRecommender(model_proxy)
 
 _get_default_options = _get_default_options_wrapper(
                           'factorization_recommender',

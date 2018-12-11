@@ -248,9 +248,11 @@ make_library(aws-sdk-cpp
     aws-cpp-sdk-s3/source/S3Errors.cpp
   REQUIRES
     curl openssl uuid
+  COMPILE_FLAGS_EXTRA_CLANG
+    -Wno-delete-non-virtual-dtor
   )
 
-target_include_directories(aws-sdk-cpp 
+target_include_directories(aws-sdk-cpp SYSTEM
   PUBLIC aws-cpp-sdk-core/include
   PUBLIC aws-cpp-sdk-s3/include
   )

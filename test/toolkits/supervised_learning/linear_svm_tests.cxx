@@ -16,6 +16,8 @@
 #include <toolkits/supervised_learning/linear_svm_opt_interface.hpp>
 #include <sframe/testing_utils.hpp>
 
+#include <unity/toolkits/coreml_export/MLModel/src/Model.hpp>
+#include <unity/toolkits/coreml_export/MLModel/tests/framework/TestUtils.hpp>
 
 using namespace turi;
 using namespace turi::supervised;
@@ -103,9 +105,8 @@ void run_linear_svm_test(std::map<std::string, flexible_type> opts) {
   _pred_class = model->predict(data, "class");
 
   // Save predictions made by the model
-  size_t rows;
   auto reader = _pred_class->get_reader();
-  rows = reader->read_rows(0, examples, pred_class);
+  reader->read_rows(0, examples, pred_class);
 
   // Check that the predictions made by the model are right!
   for(size_t i=0; i < examples; i++){
@@ -152,7 +153,7 @@ void run_linear_svm_test(std::map<std::string, flexible_type> opts) {
   // ----------------------------------------------------------------------
   _pred_class = model->predict(data, "class");
   reader = _pred_class->get_reader();
-  rows = reader->read_rows(0, examples, pred_class);
+  reader->read_rows(0, examples, pred_class);
 
   // Check that the predictions made by the model are right!
   for(size_t i=0; i < examples; i++){
@@ -168,6 +169,30 @@ void run_linear_svm_test(std::map<std::string, flexible_type> opts) {
 
   model->get_coefficients(_coefs);
   TS_ASSERT(_coefs.size() == features + 1);
+
+  // Test export to coreml
+
+  auto model_wrapped = model->export_to_coreml();
+
+  std::map<std::string, flexible_type> test_metadata = {
+    {"model_type", "linear_svm"},
+    {"version", std::to_string(model->get_version())},
+    {"class", model->name()},
+    {"short_description", "Linear SVM Model."},
+    {"test_key", "test_value"}
+  };
+
+  model_wrapped->add_metadata(test_metadata);
+  model_wrapped->save("save_model.coreml");
+
+  const std::string saved_path("save_model.coreml");
+
+  CoreML::Model open_model;
+  CoreML::Model::load(saved_path, open_model);
+
+  TS_ASSERT(open_model == *(model_wrapped->coreml_model()));
+
+  model_wrapped.reset();
   model.reset();
 }
 
@@ -268,9 +293,8 @@ void run_linear_svm_scaled_logistic_opt_interface_test(std::map<std::string,
 
     // Check gradients, functions and hessians.
     DenseVector gradient(variables);
-    double func_value;
 
-    func_value = svm_interface->compute_function_value(point);
+    svm_interface->compute_function_value(point);
     svm_interface->compute_gradient(point, gradient);
   }
 
